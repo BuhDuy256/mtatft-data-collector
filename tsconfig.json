@@ -1,0 +1,12 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",                  // Biên dịch sang JavaScript hiện đại
+    "module": "CommonJS",                 // Sử dụng hệ thống module Node.js
+    "rootDir": "./src",                   // Nơi chứa mã nguồn TypeScript
+    "outDir": "./dist",                   // Nơi chứa mã JavaScript sau khi biên dịch
+    "esModuleInterop": true,              // Giúp import các thư viện CommonJS
+    "forceConsistentCasingInFileNames": true,
+    "strict": true,                       // Bật tất cả các quy tắc strict
+    "skipLibCheck": true                  // Bỏ qua việc check type của thư viện
+  }
+}
