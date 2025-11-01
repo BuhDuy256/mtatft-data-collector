@@ -1,0 +1,5 @@
+Saturday - 11/01/2025
+
+Errors:
+    1. Player does't have tier such as CHALLENGER, GRANDMASTER, ... => For tier in tiers and get 100 player from each tier
+    2. Fetching league information for player added from matches achieved rate limit of RIOT. 

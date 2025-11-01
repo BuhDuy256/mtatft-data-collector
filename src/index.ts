@@ -14,7 +14,7 @@ const RIOT_MATCH_REGION = 'sea'; // sea, americas, asia...
 const RIOT_ACCOUNT_REGION = process.env.RIOT_ACCOUNT_REGION!; // asia, americas...
 if (!RIOT_ACCOUNT_REGION) throw new Error("RIOT_ACCOUNT_REGION not found in .env");
 
-const MATCH_GOAL = 5000;
+const MATCH_GOAL = 2000;
 const RATE_LIMIT_DELAY = 1200; // 1.2 seconds
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -97,7 +97,7 @@ async function runStage1_SeedPlayers(): Promise<Set<string>> {
   }
 }
 
-// --- STAGE 2: CRAWL 1000 MATCHES (Create Stubs) ---
+// --- STAGE 2: CRAWL MATCHES (Create Stubs) ---
 async function runStage2_CrawlMatches(puuidSeedList: Set<string>) {
   console.log("--- STAGE 2: Starting to crawl 1000 matches ---");
   const matchIdToCrawl = new Set<string>();
@@ -113,6 +113,7 @@ async function runStage2_CrawlMatches(puuidSeedList: Set<string>) {
       );
       await sleep(RATE_LIMIT_DELAY);
       (response.data as string[]).forEach(id => matchIdToCrawl.add(id));
+      console.log(`... Found ${response.data.length} match IDs.`);
     } catch (error) {
       if (isAxiosError(error)) {
         console.warn(`(WARNING) API Error for ${puuid.substring(0, 10)}: ${error.response?.status}`);
@@ -189,7 +190,7 @@ async function runStage2_CrawlMatches(puuidSeedList: Set<string>) {
       puuid: p.puuid,
       match_id: matchId
     }));
-    const { error: linkError } = await supabase.from('player_matches_link').upsert(linksToInsert, { 
+    const { error: linkError } = await supabase.from('players_matches_link').upsert(linksToInsert, { 
       onConflict: 'puuid,match_id', 
       ignoreDuplicates: true 
     });
