@@ -1,5 +1,11 @@
-Saturday - 11/01/2025
+Sunday - 11/02/2025
 
-Errors:
-    1. Player does't have tier such as CHALLENGER, GRANDMASTER, ... => For tier in tiers and get 100 player from each tier
-    2. Fetching league information for player added from matches achieved rate limit of RIOT. 
+Problems:
+    1. Player does't have tier such as CHALLENGER, GRANDMASTER, ... => For tier in tiers and get 100 player from each tier.
+    2. Fetching league information for player added from matches achieved rate limit of RIOT.
+    3. Don't filter TFT Set 15.
+    4. Don't create Supabase edge function for statistic.
+    5. Don't build independent table for statistic operations.
+    6. How to store Primary key of Trait, Unit, Item => Dragon Data of RIOT.
+    7. How to parse Json to calculate statistic parameters.
+    8. Calculating Top Comps Algorithm.
