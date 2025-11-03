@@ -24,7 +24,7 @@ import { fetchAndSavePlayerLeagues } from './services/leagueCollectorService';
 import { mapRiotPlayersToDB } from './mappers/PlayerMapper';
 
 // Repository
-import { upsertPlayers, updatePlayerAccount, updatePlayerLeague, getAllPlayerPuuids } from './repository/playerRepository';
+import { upsertPlayers, updatePlayerAccount, updatePlayerLeague, getAllPlayerPuuids, deletePlayersWithoutMatches } from './repository/playerRepository';
 import { upsertPlayerStubs, upsertPlayerMatchLinks } from './repository/matchRepository';
 
 // Models
@@ -222,6 +222,20 @@ async function enrichPlayerLeagues(): Promise<void> {
     console.log(`    - Successfully updated: ${updatedCount}`);
 }
 
+/**
+ * STAGE 3: Clean up orphaned players
+ * Xóa players không có match nào trong database
+ * Sử dụng SQL stored procedure để performance tốt hơn
+ */
+async function cleanUpOrphanedPlayers(): Promise<void> {
+    console.log(`(INFO) Stage 3: Cleaning up orphaned players...`);
+    
+    const deletedCount = await deletePlayersWithoutMatches();
+    
+    console.log(`(OK) Stage 3 Complete!`);
+    console.log(`    - Orphaned players deleted: ${deletedCount}`);
+}
+
 // --- MAIN FUNCTION ---
 async function main() {
     try {
@@ -239,7 +253,7 @@ async function main() {
         await collectMatchBaseOnPlayerPUUIDs(puuidSeedList, RIOT_MATCH_REGION);
         
         // --- STAGE 3: DELETE ALL PLAYERS DON'T HAVE MATCH IN DATABASE ---
-        // TODO: Implement later
+        await cleanUpOrphanedPlayers();
         
         // --- STAGE 4: COLLECT PLAYER ACCOUNT DATA ---
         await enrichPlayerAccounts();

@@ -75,28 +75,23 @@ export async function deletePlayersByPuuids(puuids: string[]): Promise<number> {
 
 /**
  * Delete players that don't have any matches
- * Uses RPC function or direct query
+ * Uses SQL stored procedure for better performance
  * @returns Number of deleted players
  */
 export async function deletePlayersWithoutMatches(): Promise<number> {
-    // Option 1: Using RPC if you have a stored procedure
-    // const { data, error } = await supabase.rpc('delete_players_without_matches');
+    console.log("(INFO) Deleting players without matches...");
     
-    // Option 2: Direct query (if matches table exists)
-    const { data, error } = await supabase
-        .from('players')
-        .delete()
-        .not('puuid', 'in', 
-            supabase.from('matches').select('puuid')
-        )
-        .select('puuid');
+    const { data, error } = await supabase.rpc('delete_orphaned_players');
     
     if (error) {
-        console.error("(ERROR) Error deleting players without matches:", error.message);
+        console.error("(ERROR) Error deleting orphaned players:", error.message, error.details);
         throw error;
     }
     
-    return data?.length || 0;
+    const deletedCount = typeof data === 'number' ? data : 0;
+    console.log(`(OK) Deleted ${deletedCount} orphaned players.`);
+    
+    return deletedCount;
 }
 
 /**
