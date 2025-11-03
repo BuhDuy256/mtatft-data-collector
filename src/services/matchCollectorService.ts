@@ -102,3 +102,78 @@ export async function collectMatchDetail(match_id_list: Set<string>, region: str
     return results;
 }
 
+/**
+ * STREAM VERSION: Fetch match và save ngay vào DB
+ * @param match_id_list - Set of match IDs
+ * @param region - Region string
+ * @param onMatchFetched - Callback để save match vào DB (nhận MatchDetailResult)
+ * @returns Số lượng matches đã fetch thành công
+ */
+export async function fetchAndSaveMatchDetails(
+    match_id_list: Set<string>,
+    region: string,
+    onMatchFetched: (matchResult: MatchDetailResult) => Promise<void>
+): Promise<number> {
+    let successCount = 0;
+    let i = 0;
+    
+    console.log(`(INFO) Fetching and saving ${match_id_list.size} matches...`);
+    
+    for (const matchId of match_id_list) {
+        i++;
+        console.log(`[Match ${i}/${match_id_list.size}] Fetching ${matchId}...`);
+        
+        try {
+            // Fetch match data
+            const response = await retryOnRateLimit(() => 
+                matchApi.get(`/tft/match/v1/matches/${matchId}`));
+            await sleep(RATE_LIMIT_DELAY);
+            
+            const fullMatchData = response.data;
+            const validatedMatch = RiotMatchSchema.parse(fullMatchData);
+            
+            // Parse match summary
+            const matchSummary: MatchSummary = {
+                match_id: validatedMatch.metadata.match_id,
+                game_datetime: validatedMatch.info.game_datetime,
+                game_length: validatedMatch.info.game_length,
+                queue_id: validatedMatch.info.queue_id,
+                tft_set_number: validatedMatch.info.tft_set_number,
+                tft_game_type: validatedMatch.info.tft_game_type,
+                participants_count: validatedMatch.info.participants.length
+            };
+            
+            // Extract player PUUIDs
+            const playerPuuids = validatedMatch.info.participants.map(p => p.puuid);
+            
+            const matchResult: MatchDetailResult = {
+                matchId,
+                fullMatchData,
+                matchSummary: MatchSummarySchema.parse(matchSummary),
+                playerPuuids
+            };
+            
+            console.log(`... Success! Found ${playerPuuids.length} players.`);
+            
+            // Save vào DB ngay
+            try {
+                await onMatchFetched(matchResult);
+                successCount++;
+                console.log(`... Saved to DB ✓`);
+            } catch (error) {
+                console.error(`... Failed to save: ${error instanceof Error ? error.message : String(error)}`);
+            }
+            
+        } catch (error) {
+            if (isAxiosError(error)) {
+                console.error(`(ERROR) API Error for ${matchId}: ${error.response?.status}`);
+            } else {
+                console.error(`(ERROR) Error fetching ${matchId}:`, error instanceof Error ? error.message : String(error));
+            }
+        }
+    }
+    
+    console.log(`(INFO) Successfully fetched and saved ${successCount}/${match_id_list.size} matches.`);
+    return successCount;
+}
+

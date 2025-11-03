@@ -56,3 +56,39 @@ export async function fetchPlayerAccounts(puuids: string[]): Promise<RiotAccount
     console.log(`(INFO) Successfully fetched ${accounts.length}/${puuids.length} accounts.`);
     return accounts;
 }
+
+/**
+ * STREAM VERSION: Fetch và save account ngay vào DB
+ * @param puuids - Array of PUUIDs
+ * @param onAccountFetched - Callback để save vào DB
+ * @returns Số lượng accounts đã fetch thành công
+ */
+export async function fetchAndSavePlayerAccounts(
+    puuids: string[],
+    onAccountFetched: (account: RiotAccount) => Promise<void>
+): Promise<number> {
+    let successCount = 0;
+    let i = 0;
+    
+    console.log(`(INFO) Fetching and saving account info for ${puuids.length} players...`);
+    
+    for (const puuid of puuids) {
+        i++;
+        console.log(`[Account ${i}/${puuids.length}] Fetching ${puuid.substring(0, 10)}...`);
+        
+        const account = await fetchPlayerAccount(puuid);
+        if (account) {
+            console.log(`... Found: ${account.gameName}#${account.tagLine}`);
+            try {
+                await onAccountFetched(account);
+                successCount++;
+                console.log(`... Saved to DB ✓`);
+            } catch (error) {
+                console.error(`... Failed to save: ${error instanceof Error ? error.message : String(error)}`);
+            }
+        }
+    }
+    
+    console.log(`(INFO) Successfully fetched and saved ${successCount}/${puuids.length} accounts.`);
+    return successCount;
+}

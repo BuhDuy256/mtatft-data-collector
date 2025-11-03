@@ -66,3 +66,39 @@ export async function fetchPlayerLeagues(puuids: string[]): Promise<RiotLeagueEn
     console.log(`(INFO) Successfully fetched ${leagueEntries.length}/${puuids.length} league entries.`);
     return leagueEntries;
 }
+
+/**
+ * STREAM VERSION: Fetch và save league ngay vào DB
+ * @param puuids - Array of PUUIDs
+ * @param onLeagueFetched - Callback để save vào DB
+ * @returns Số lượng leagues đã fetch thành công
+ */
+export async function fetchAndSavePlayerLeagues(
+    puuids: string[],
+    onLeagueFetched: (league: RiotLeagueEntry) => Promise<void>
+): Promise<number> {
+    let successCount = 0;
+    let i = 0;
+    
+    console.log(`(INFO) Fetching and saving league info for ${puuids.length} players...`);
+    
+    for (const puuid of puuids) {
+        i++;
+        console.log(`[League ${i}/${puuids.length}] Fetching ${puuid.substring(0, 10)}...`);
+        
+        const league = await fetchPlayerLeague(puuid);
+        if (league) {
+            console.log(`... Found: ${league.tier} ${league.rank} (${league.leaguePoints} LP)`);
+            try {
+                await onLeagueFetched(league);
+                successCount++;
+                console.log(`... Saved to DB ✓`);
+            } catch (error) {
+                console.error(`... Failed to save: ${error instanceof Error ? error.message : String(error)}`);
+            }
+        }
+    }
+    
+    console.log(`(INFO) Successfully fetched and saved ${successCount}/${puuids.length} league entries.`);
+    return successCount;
+}
