@@ -33,4 +33,4 @@ const accountApi: AxiosInstance = axios.create({
     headers: { "X-Riot-Token": RIOT_API_KEY }
 });
 
-export { HighTierLeagueApi, LowTierLeagueApi, matchApi, accountApi };
+export { HighTierLeagueApi, LowTierLeagueApi, matchApi, accountApi, RIOT_MATCH_REGION, RIOT_LEAGUE_REGION };

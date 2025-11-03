@@ -16,12 +16,20 @@ import {
 // Services
 import { fecthPlayersBasedTier } from './services/playerCollectorService';
 import { randomPlayersBasedOnMatchGoal } from './services/playerSelectionService';
+import { collectMatchIDBaseOnPlayerPUUIDs, collectMatchDetail } from './services/matchCollectorService';
 
 // Mappers
 import { mapRiotPlayersToDB } from './mappers/PlayerMapper';
 
 // Repository
 import { upsertPlayers } from './repository/playerRepository';
+import { upsertMatches, upsertPlayerStubs, upsertPlayerMatchLinks } from './repository/matchRepository';
+
+// Models
+import type { MatchDB, PlayerMatchLinkDB } from './models/database/MatchDBMode';
+
+// Utils
+import { RIOT_MATCH_REGION } from './utils/api';
 
 // --- LOG ---
 const logDir = path.join(process.cwd(), 'logs');
@@ -92,8 +100,71 @@ async function collectPlayersBaseOnTier(
     return puuidSeedList;
 }
 
-async function collectMatchBaseOnPlayerPUUIDs(puuid_seed_list: Set<string>) {
+/**
+ * STAGE 2: Collect matches từ seed players
+ * 1. Lấy match IDs từ players
+ * 2. Fetch full match details từ API
+ * 3. Lưu full JSON vào DB (JSONB)
+ * 4. Extract players từ match và upsert vào DB (chỉ puuid, các field khác NULL)
+ * 5. Tạo links giữa players và matches
+ */
+async function collectMatchBaseOnPlayerPUUIDs(
+    puuid_seed_list: Set<string>,
+    region: string
+): Promise<void> {
+    console.log(`(INFO) Stage 2: Collecting matches from ${puuid_seed_list.size} seed players...`);
     
+    // Step 1: Lấy match IDs từ seed players
+    const matchIdSet = await collectMatchIDBaseOnPlayerPUUIDs(puuid_seed_list);
+    
+    if (matchIdSet.size === 0) {
+        console.log("(WARNING) No match IDs found.");
+        return;
+    }
+    
+    // Step 2: Fetch match details và lưu vào DB
+    const matchResults = await collectMatchDetail(matchIdSet, region);
+    
+    // Step 3: Prepare data để insert vào DB
+    const matchesToInsert: MatchDB[] = matchResults.map(result => ({
+        match_id: result.matchId,
+        data: result.fullMatchData, // Full JSON vào JSONB column
+        is_processed: false,
+        region: region
+    }));
+    
+    // Step 4: Upsert matches vào DB
+    console.log(`(INFO) Upserting ${matchesToInsert.length} matches to database...`);
+    await upsertMatches(matchesToInsert);
+    
+    // Step 5: Extract tất cả player PUUIDs từ matches và upsert vào DB
+    const allPlayerPuuids = new Set<string>();
+    matchResults.forEach(result => {
+        result.playerPuuids.forEach(puuid => allPlayerPuuids.add(puuid));
+    });
+    
+    console.log(`(INFO) Found ${allPlayerPuuids.size} unique players across all matches.`);
+    console.log(`(INFO) Upserting player stubs (puuid only, other fields NULL)...`);
+    await upsertPlayerStubs(Array.from(allPlayerPuuids));
+    
+    // Step 6: Tạo links giữa players và matches
+    const links: PlayerMatchLinkDB[] = [];
+    matchResults.forEach(result => {
+        result.playerPuuids.forEach(puuid => {
+            links.push({
+                puuid,
+                match_id: result.matchId
+            });
+        });
+    });
+    
+    console.log(`(INFO) Creating ${links.length} player-match links...`);
+    await upsertPlayerMatchLinks(links);
+    
+    console.log(`(OK) Stage 2 Complete!`);
+    console.log(`    - Matches collected: ${matchesToInsert.length}`);
+    console.log(`    - Unique players found: ${allPlayerPuuids.size}`);
+    console.log(`    - Links created: ${links.length}`);
 }
 
 // --- MAIN FUNCTION ---
@@ -104,7 +175,13 @@ async function main() {
         // --- STAGE 1: COLLECT TIER-BASED PLAYERS ---
         const puuidSeedList = await collectPlayersBaseOnTier(tier, match_goal, [2, 3], [1, 2]);
         
+        if (puuidSeedList.size === 0) {
+            console.log("(WARNING) No seed players found. Stopping.");
+            return;
+        }
+        
         // --- STAGE 2: COLLECT MATCHES ---
+        await collectMatchBaseOnPlayerPUUIDs(puuidSeedList, RIOT_MATCH_REGION);
         
         
         // --- STAGE 3: DELETE ALL PLAYERS DON'T HAVE MATCH IN DATABASE ---
