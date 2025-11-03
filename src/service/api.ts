@@ -13,7 +13,12 @@ if (!RIOT_API_KEY) {
     throw new Error('RIOT_API_KEY is not defined in environment variables');
 }
 
-const leagueApi: AxiosInstance = axios.create({
+const HighTierLeagueApi: AxiosInstance = axios.create({
+    baseURL: `https://${RIOT_LEAGUE_REGION}.api.riotgames.com`,
+    headers: { "X-Riot-Token": RIOT_API_KEY }
+});
+
+const LowTierLeagueApi: AxiosInstance = axios.create({
     baseURL: `https://${RIOT_LEAGUE_REGION}.api.riotgames.com`,
     headers: { "X-Riot-Token": RIOT_API_KEY }
 });
@@ -28,4 +33,4 @@ const accountApi: AxiosInstance = axios.create({
     headers: { "X-Riot-Token": RIOT_API_KEY }
 });
 
-export { leagueApi, matchApi, accountApi };
+export { HighTierLeagueApi, LowTierLeagueApi, matchApi, accountApi };

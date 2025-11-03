@@ -6,7 +6,6 @@ import * as dotenv from 'dotenv'; // For loading environment variables. Docs: ht
 import { z } from 'zod'; // For runtime validation. Docs: https://zod.dev/api
 
 import type { RiotLeagueRegion, RiotMatchRegion, RiotAccountRegion } from './utils/constant';
-import { leagueApi, matchApi, accountApi } from './service/api';
 import { 
     TierSchema, 
     HIGH_TIERS, 
@@ -16,8 +15,11 @@ import {
     type Tier,
     type HighTier, 
     type LowTier, 
-    type Division 
+    type Division, 
+    fetchHighTierPlayers,
+    fetchTierBasedPlayers
 } from './features/player_collector/seedPlayerCollector';
+import { pagesToFetch } from './utils/constant';
 
 // --- LOG ---
 const logDir = path.join(process.cwd(), 'logs');
@@ -51,22 +53,42 @@ if (!parsedTier.success) {
   );
 }
 
-const TIER: Tier = parsedTier.data;
-const MATCH_GOAL = parseInt(matchGoalArg || '');
+const tier: Tier = parsedTier.data;
+const match_goal = parseInt(matchGoalArg || '');
 
-if (isNaN(MATCH_GOAL)) {
+if (isNaN(match_goal)) {
   throw new Error(
     `(ERROR) Match goal argument is required and must be a number. Usage: npm start <TIER> <MATCH_GOAL>`
   );
 }
 
-console.log(`(INFO) Starting data collection for tier: ${TIER}, match goal: ${MATCH_GOAL}`);
+// --- MAIN FUNCTION ---
+async function main() {
+  try {
+    console.log(`(INFO) Starting data collection for tier: ${tier}, match goal: ${match_goal}`);
+    
+    // --- STAGE 1: COLLECT TIER-BASED PLAYERS ---
+    console.log(`(INFO) Stage 1: Collecting players...`);
+    const players = await fetchTierBasedPlayers(tier, pagesToFetch);
+    console.log(players.length);
+    
+    // --- STAGE 2: COLLECT MATCHES ---
+    
+    // --- STAGE 3: DELETE ALL PLAYERS DON'T HAVE MATCH IN DATABASE ---
+    
+    // --- STAGE 4: COLLECT PLAYER ACCOUNT DATA ---
+    
+    // --- STAGE 5: COLLECT PLAYER LEAGUE DATA ---
+    
+    console.log(`(OK) Data collection complete!`);
+  } catch (error) {
+    console.error(`(ERROR) Fatal error in main:`, error);
+    process.exit(1);
+  }
+}
 
-// --- STAGE 1: COLLECT TIER-BASED PLAYERS ---
-// --- STAGE 2: COLLECT MATCHES ---
-// --- STAGE 3: DELETE ALL PLAYERS DON'T HAVE MATCH IN DATABASE ---
-// --- STAGE 3: COLLECT PLAYER ACCOUNT DATA ---
-// --- STAGE 4: COLLECT PLAYER LEAGUE DATA --- 
+// Run main function
+main(); 
 
 
 
