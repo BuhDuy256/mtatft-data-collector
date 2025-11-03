@@ -1,8 +1,4 @@
-import {
-    type RiotHighTierEntry, 
-    type RiotLowTierEntry,
-} from './playerCollectorService';
-
+import { type RiotHighTierEntry, type RiotLowTierEntry } from '../models/riot/RiotPlayerModels';
 import { MATCHES_PER_PLAYER } from '../utils/constant';
 
 export function randomPlayersBasedOnMatchGoal<T extends RiotHighTierEntry | RiotLowTierEntry>(

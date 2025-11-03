@@ -1,87 +1,36 @@
-import { z } from 'zod'; // For runtime validation. Docs: https://zod.dev/api
-import { HighTierLeagueApi, LowTierLeagueApi } from '../utils/api';
+ import { HighTierLeagueApi, LowTierLeagueApi } from '../utils/api';
 import { sleep, retryOnRateLimit } from '../helper/helper';
 import { RATE_LIMIT_DELAY } from '../utils/constant';
 
-// --- BASE SCHEMA: Common fields for all player entries ---
-export const PlayerBaseSchema = z.object({
-    puuid: z.string(),
-    leaguePoints: z.number(),
-    rank: z.string(),
-    wins: z.number(),
-    losses: z.number(),
-    veteran: z.boolean(),
-    inactive: z.boolean(),
-    freshBlood: z.boolean(),
-    hotStreak: z.boolean()
-});
+// Import models
+import { 
+    type HighTier, 
+    type LowTier, 
+    type Tier, 
+    type Division,
+    isHighTier,
+    isLowTier
+} from '../models/riot/RiotTierModels';
 
-// --- HIGH TIER ENTRY SCHEMA (from API) ---
-// High tier API doesn't return 'tier' field, we add it manually
-const RiotHighTierEntryRawSchema = PlayerBaseSchema;
+import {
+    type RiotHighTierEntry,
+    type RiotLowTierEntry,
+    RiotHighTierResponseSchema,
+    RiotLowTierResponseSchema
+} from '../models/riot/RiotPlayerModels';
 
-export const RiotHighTierEntrySchema = RiotHighTierEntryRawSchema.extend({
-    tier: z.string() // Added manually after API fetch
-});
-
-export type RiotHighTierEntry = z.infer<typeof RiotHighTierEntrySchema>;
-
-// --- LOW TIER ENTRY SCHEMA ---
-// Low tier = Base schema + extra fields (tier, leagueId, queueType)
-export const RiotLowTierEntrySchema = PlayerBaseSchema.extend({
-    leagueId: z.string(),
-    queueType: z.string(),
-    tier: z.string()
-});
-
-export type RiotLowTierEntry = z.infer<typeof RiotLowTierEntrySchema>; 
-
-// Low Tier API returns array directly (no wrapper object)
-const RiotLowTierSchema = z.array(RiotLowTierEntrySchema);
-
-const RiotHighTierSchema = z.object({
-    tier: z.string(),
-    leagueId: z.string(),
-    queue: z.string(),
-    name: z.string(),
-    entries: z.array(RiotHighTierEntryRawSchema) // API returns without tier field
-});
-
-type RiotHighTier = z.infer<typeof RiotHighTierSchema>;
-
-// Tier Schemas
-export const HighTierSchema = z.enum(['challenger', 'grandmaster', 'master']);
-export const LowTierSchema = z.enum(['diamond', 'emerald', 'platinum', 'gold', 'silver', 'bronze', 'iron']);
-export const TierSchema = z.union([HighTierSchema, LowTierSchema]);
-export const DivisionSchema = z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]);
-
-// Infer types from schemas
-export type HighTier = z.infer<typeof HighTierSchema>;
-export type LowTier = z.infer<typeof LowTierSchema>;
-export type Tier = z.infer<typeof TierSchema>;
-export type Division = z.infer<typeof DivisionSchema>;
-
-// Export constant arrays (extracted from schemas)
-export const HIGH_TIERS = HighTierSchema.options;
-export const LOW_TIERS = LowTierSchema.options;
-
-// Type guard functions
-export const isHighTier = (tier: Tier): tier is HighTier => {
-    return HighTierSchema.safeParse(tier).success;
-};
-
-export const isLowTier = (tier: Tier): tier is LowTier => {
-    return LowTierSchema.safeParse(tier).success;
-};
+// Re-export types for convenience
+export type { HighTier, LowTier, Tier, Division };
+export type { RiotHighTierEntry, RiotLowTierEntry };
 
 export async function fetchHighTierPlayers(tier: HighTier): Promise<RiotHighTierEntry[]> {
     try {
         const response = await retryOnRateLimit(() => HighTierLeagueApi.get(`/tft/league/v1/${tier}`));
         await sleep(RATE_LIMIT_DELAY);
-        const validatedData = RiotHighTierSchema.parse(response.data);
+        const validatedData = RiotHighTierResponseSchema.parse(response.data);
         
         // Add tier field to each player (API doesn't provide it)
-        const players = validatedData.entries.map(player => ({
+        const players = validatedData.entries.map((player) => ({
             ...player,
             tier: tier.toUpperCase() // CHALLENGER, GRANDMASTER, MASTER
         }));
@@ -114,10 +63,10 @@ export async function fetchLowTierPlayers(
         await sleep(RATE_LIMIT_DELAY);
         
         // Low Tier API returns array directly
-        const validatedData = RiotLowTierSchema.parse(response.data);
+        const validatedData = RiotLowTierResponseSchema.parse(response.data);
         
         // Normalize tier to uppercase (even though API already returns uppercase)
-        const normalizedPlayers = validatedData.map(player => ({
+        const normalizedPlayers = validatedData.map((player) => ({
             ...player,
             tier: player.tier.toUpperCase()
         }));

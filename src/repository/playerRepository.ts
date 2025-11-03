@@ -1,5 +1,5 @@
 import { supabase } from '../database/supabaseClient';
-import type { PlayerForDB } from '../services/playerMappingService';
+import type { PlayerDB } from '../models/database/PlayerDBModel';
 
 /**
  * Repository for player-related database operations
@@ -12,7 +12,7 @@ import type { PlayerForDB } from '../services/playerMappingService';
  * @returns Array of PUUIDs that were successfully upserted
  * @throws Error if upsert fails
  */
-export async function upsertPlayers(players: PlayerForDB[]): Promise<string[]> {
+export async function upsertPlayers(players: PlayerDB[]): Promise<string[]> {
     console.log(`(INFO) Upserting ${players.length} players to database...`);
 
     const { data, error } = await supabase
@@ -39,7 +39,7 @@ export async function upsertPlayers(players: PlayerForDB[]): Promise<string[]> {
  * @param puuids - Array of PUUIDs to fetch
  * @returns Array of player records
  */
-export async function getPlayersByPuuids(puuids: string[]): Promise<PlayerForDB[]> {
+export async function getPlayersByPuuids(puuids: string[]): Promise<PlayerDB[]> {
     const { data, error } = await supabase
         .from('players')
         .select('*')

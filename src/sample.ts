@@ -37,7 +37,6 @@ async function apiCallWithRetry<T>(apiCall: () => Promise<T>, maxRetries = 3): P
   }
   throw new Error("API call failed after retries");
 }
-
 // --- 3 AXIOS INSTANCES ---
 const platformApi: AxiosInstance = axios.create({
   baseURL: `https://${RIOT_PLATFORM_ID}.api.riotgames.com`,
@@ -261,57 +260,57 @@ async function runStage4_EnrichNames() {
 
 // --- STAGE 5: ENRICH RANKS ---
 async function runStage5_EnrichRanks() {
-  console.log("--- STAGE 5: Starting to enrich player ranks ---");
-  const { data: players, error } = await supabase
-    .from('players').select('puuid').is('tier', null);
+    console.log("--- STAGE 5: Starting to enrich player ranks ---");
+    const { data: players, error } = await supabase
+        .from('players').select('puuid').is('tier', null);
 
-  if (error || !players || players.length === 0) {
-    console.log("(OK) No players missing ranks.");
-    return;
-  }
-
-  console.log(`Found ${players.length} players needing rank updates.`);
-  let i = 0;
-  for (const player of players) {
-    i++;
-    console.log(`[Rank ${i}/${players.length}] Fetching rank for ${player.puuid.substring(0, 10)}...`);
-    try {
-      const response = await apiCallWithRetry(() =>
-        platformApi.get<RiotLeagueEntry[]>(`/tft/league/v1/entries/by-puuid/${player.puuid}`)
-      );
-      await sleep(RATE_LIMIT_DELAY);
-
-      const leagueEntries = response.data;
-      const rankedTftInfo = leagueEntries.find(e => e.queueType === 'RANKED_TFT');
-
-      if (rankedTftInfo) {
-        const { error: updateError } = await supabase.from('players').update({
-          tier: rankedTftInfo.tier,
-          rank: rankedTftInfo.rank,
-          league_points: rankedTftInfo.leaguePoints,
-          wins: rankedTftInfo.wins,
-          losses: rankedTftInfo.losses,
-          last_updated: new Date()
-        }).eq('puuid', player.puuid);
-        
-        if (updateError) {
-          console.error("(ERROR) Error updating player rank:", updateError.message);
-        }
-      } else {
-        await supabase.from('players').update({ tier: 'UNRANKED' }).eq('puuid', player.puuid);
-      }
-    } catch (error) {
-      if (isAxiosError(error)) {
-        console.warn(`(WARNING) API Error for ${player.puuid.substring(0, 10)}: ${error.response?.status}`);
-        if (error.response?.status === 404) {
-          await supabase.from('players').update({ tier: 'UNRANKED' }).eq('puuid', player.puuid);
-        }
-      } else {
-        console.warn(`(WARNING) Error fetching rank for ${player.puuid}:`, error instanceof Error ? error.message : String(error));
-      }
+    if (error || !players || players.length === 0) {
+        console.log("(OK) No players missing ranks.");
+        return;
     }
-  }
-  console.log("(OK) Rank enrichment complete.");
+
+    console.log(`Found ${players.length} players needing rank updates.`);
+    let i = 0;
+    for (const player of players) {
+        i++;
+        console.log(`[Rank ${i}/${players.length}] Fetching rank for ${player.puuid.substring(0, 10)}...`);
+        try {
+        const response = await apiCallWithRetry(() =>
+            platformApi.get<RiotLeagueEntry[]>(`/tft/league/v1/entries/by-puuid/${player.puuid}`)
+        );
+        await sleep(RATE_LIMIT_DELAY);
+
+        const leagueEntries = response.data;
+        const rankedTftInfo = leagueEntries.find(e => e.queueType === 'RANKED_TFT');
+
+        if (rankedTftInfo) {
+            const { error: updateError } = await supabase.from('players').update({
+            tier: rankedTftInfo.tier,
+            rank: rankedTftInfo.rank,
+            league_points: rankedTftInfo.leaguePoints,
+            wins: rankedTftInfo.wins,
+            losses: rankedTftInfo.losses,
+            last_updated: new Date()
+            }).eq('puuid', player.puuid);
+            
+            if (updateError) {
+            console.error("(ERROR) Error updating player rank:", updateError.message);
+            }
+        } else {
+            await supabase.from('players').update({ tier: 'UNRANKED' }).eq('puuid', player.puuid);
+        }
+        } catch (error) {
+        if (isAxiosError(error)) {
+            console.warn(`(WARNING) API Error for ${player.puuid.substring(0, 10)}: ${error.response?.status}`);
+            if (error.response?.status === 404) {
+            await supabase.from('players').update({ tier: 'UNRANKED' }).eq('puuid', player.puuid);
+            }
+        } else {
+            console.warn(`(WARNING) Error fetching rank for ${player.puuid}:`, error instanceof Error ? error.message : String(error));
+        }
+        }
+    }
+    console.log("(OK) Rank enrichment complete.");
 }
 
 

@@ -4,18 +4,23 @@ import { supabase } from './database/supabaseClient';
 import axios, { AxiosInstance, isAxiosError } from 'axios';
 import * as dotenv from 'dotenv'; // For loading environment variables. Docs: https://www.npmjs.com/package/dotenv
 import { z } from 'zod'; // For runtime validation. Docs: https://zod.dev/api
+// Models
 import { 
     TierSchema, 
     HIGH_TIERS, 
     LOW_TIERS,
     type Tier,
-    type Division,
-    type RiotHighTierEntry, 
-    type RiotLowTierEntry,
-    fecthPlayersBasedTier
-} from './services/playerCollectorService';
+    type Division
+} from './models/riot/RiotTierModels';
+
+// Services
+import { fecthPlayersBasedTier } from './services/playerCollectorService';
 import { randomPlayersBasedOnMatchGoal } from './services/playerSelectionService';
-import { mapPlayersForDB } from './services/playerMappingService';
+
+// Mappers
+import { mapRiotPlayersToDB } from './mappers/PlayerMapper';
+
+// Repository
 import { upsertPlayers } from './repository/playerRepository';
 
 // --- LOG ---
@@ -63,7 +68,7 @@ if (isNaN(match_goal)) {
  * STAGE 1: Collect tier-based players and insert into database
  * @returns Set of PUUIDs that were successfully inserted into DB
  */
-async function collectTierBasedPlayers(
+async function collectPlayersBaseOnTier(
     tier: Tier, 
     matchGoal: number,
     divisions: Division[] = [1, 2, 3, 4],
@@ -74,7 +79,7 @@ async function collectTierBasedPlayers(
     // Step 1: Fetch and select players
     const raw_players = await fecthPlayersBasedTier(tier, divisions, pages);
     const players = randomPlayersBasedOnMatchGoal(raw_players, matchGoal);
-    const players_to_upsert = mapPlayersForDB(players);
+    const players_to_upsert = mapRiotPlayersToDB(players);
 
     // Step 2: Upsert to database via repository
     const upsertedPuuids = await upsertPlayers(players_to_upsert);
@@ -87,15 +92,20 @@ async function collectTierBasedPlayers(
     return puuidSeedList;
 }
 
+async function collectMatchBaseOnPlayerPUUIDs(puuid_seed_list: Set<string>) {
+    
+}
+
 // --- MAIN FUNCTION ---
 async function main() {
     try {
         console.log(`(INFO) Starting data collection for tier: ${tier}, match goal: ${match_goal}`);
         
         // --- STAGE 1: COLLECT TIER-BASED PLAYERS ---
-        const puuidSeedList = await collectTierBasedPlayers(tier, match_goal, [2, 3], [1, 2]);
+        const puuidSeedList = await collectPlayersBaseOnTier(tier, match_goal, [2, 3], [1, 2]);
         
         // --- STAGE 2: COLLECT MATCHES ---
+        
         
         // --- STAGE 3: DELETE ALL PLAYERS DON'T HAVE MATCH IN DATABASE ---
         
