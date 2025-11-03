@@ -17,12 +17,14 @@ import {
 import { fecthPlayersBasedTier } from './services/playerCollectorService';
 import { randomPlayersBasedOnMatchGoal } from './services/playerSelectionService';
 import { collectMatchIDBaseOnPlayerPUUIDs, collectMatchDetail } from './services/matchCollectorService';
+import { fetchPlayerAccounts } from './services/accountCollectorService';
 
 // Mappers
 import { mapRiotPlayersToDB } from './mappers/PlayerMapper';
+import { mapRiotAccountsToPlayerUpdates } from './mappers/AccountMapper';
 
 // Repository
-import { upsertPlayers } from './repository/playerRepository';
+import { upsertPlayers, batchUpdatePlayerAccounts, getAllPlayerPuuids } from './repository/playerRepository';
 import { upsertMatches, upsertPlayerStubs, upsertPlayerMatchLinks } from './repository/matchRepository';
 
 // Models
@@ -167,6 +169,50 @@ async function collectMatchBaseOnPlayerPUUIDs(
     console.log(`    - Links created: ${links.length}`);
 }
 
+/**
+ * STAGE 4: Enrich player account data (game_name, tag_line)
+ * Update account info cho TẤT CẢ players trong database
+ * 1. Lấy tất cả player PUUIDs
+ * 2. Fetch account data từ Riot API
+ * 3. Update vào DB
+ */
+async function enrichPlayerAccounts(): Promise<void> {
+    console.log(`(INFO) Stage 4: Enriching player account data...`);
+    
+    // Step 1: Lấy TẤT CẢ player PUUIDs từ database
+    const allPuuids = await getAllPlayerPuuids();
+    
+    if (allPuuids.length === 0) {
+        console.log("(WARNING) No players found in database. Skipping Stage 4.");
+        return;
+    }
+    
+    console.log(`(INFO) Updating account info for ${allPuuids.length} players...`);
+    
+    // Step 2: Fetch account data từ Riot API
+    const accounts = await fetchPlayerAccounts(allPuuids);
+    
+    if (accounts.length === 0) {
+        console.log("(WARNING) No accounts fetched. Skipping update.");
+        return;
+    }
+    
+    // Step 3: Map sang DB format
+    const updates = accounts.map(account => ({
+        puuid: account.puuid,
+        gameName: account.gameName,
+        tagLine: account.tagLine
+    }));
+    
+    // Step 4: Batch update vào DB
+    const updatedCount = await batchUpdatePlayerAccounts(updates);
+    
+    console.log(`(OK) Stage 4 Complete!`);
+    console.log(`    - Total players: ${allPuuids.length}`);
+    console.log(`    - Accounts fetched: ${accounts.length}`);
+    console.log(`    - Successfully updated: ${updatedCount}`);
+}
+
 // --- MAIN FUNCTION ---
 async function main() {
     try {
@@ -183,12 +229,14 @@ async function main() {
         // --- STAGE 2: COLLECT MATCHES ---
         await collectMatchBaseOnPlayerPUUIDs(puuidSeedList, RIOT_MATCH_REGION);
         
-        
         // --- STAGE 3: DELETE ALL PLAYERS DON'T HAVE MATCH IN DATABASE ---
+        // TODO: Implement later
         
         // --- STAGE 4: COLLECT PLAYER ACCOUNT DATA ---
+        await enrichPlayerAccounts();
         
         // --- STAGE 5: COLLECT PLAYER LEAGUE DATA ---
+        // TODO: Implement later
         
         console.log(`(OK) Data collection complete!`);
     } catch (error) {

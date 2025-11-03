@@ -7,6 +7,8 @@ import { z } from 'zod';
 
 export const PlayerDBSchema = z.object({
     puuid: z.string(),
+    game_name: z.string().optional(),      // Riot ID game name
+    tag_line: z.string().optional(),       // Riot ID tag line
     tier: z.string(), // CHALLENGER, GRANDMASTER, MASTER, DIAMOND, EMERALD, PLATINUM, GOLD, SILVER, BRONZE, IRON
     league_points: z.number(),
     rank: z.string(), // I, II, III, IV
@@ -19,3 +21,14 @@ export const PlayerDBSchema = z.object({
 });
 
 export type PlayerDB = z.infer<typeof PlayerDBSchema>;
+
+/**
+ * Partial schema - chỉ account info (để update Stage 4)
+ */
+export const PlayerAccountUpdateSchema = z.object({
+    puuid: z.string(),
+    game_name: z.string(),
+    tag_line: z.string()
+});
+
+export type PlayerAccountUpdate = z.infer<typeof PlayerAccountUpdateSchema>;

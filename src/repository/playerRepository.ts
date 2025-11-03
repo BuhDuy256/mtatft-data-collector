@@ -148,3 +148,38 @@ export async function batchUpdatePlayerAccounts(
     console.log(`(OK) Successfully updated ${successCount}/${updates.length} player accounts`);
     return successCount;
 }
+
+/**
+ * Get players missing account info (game_name hoặc tag_line là NULL)
+ * @returns Array of PUUIDs
+ */
+export async function getPlayersMissingAccountInfo(): Promise<string[]> {
+    const { data, error } = await supabase
+        .from('players')
+        .select('puuid')
+        .or('game_name.is.null,tag_line.is.null');
+    
+    if (error) {
+        console.error("(ERROR) Error fetching players missing account info:", error.message);
+        throw error;
+    }
+    
+    return data?.map(row => row.puuid) || [];
+}
+
+/**
+ * Get all player PUUIDs from database
+ * @returns Array of all PUUIDs
+ */
+export async function getAllPlayerPuuids(): Promise<string[]> {
+    const { data, error } = await supabase
+        .from('players')
+        .select('puuid');
+    
+    if (error) {
+        console.error("(ERROR) Error fetching all player PUUIDs:", error.message);
+        throw error;
+    }
+    
+    return data?.map(row => row.puuid) || [];
+}
