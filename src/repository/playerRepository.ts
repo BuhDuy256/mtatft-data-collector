@@ -8,12 +8,6 @@ import type { PlayerDB } from '../models/database/PlayerDBModel';
 
 /**
  * Upsert players into database
- * @param players - Array of players to insert/update
- * @returns Array of PUUIDs that were successfully upserted
- * @throws Error if upsert fails
- */
-/**
- * Upsert players into database
  * Uses ON CONFLICT to update existing players or insert new ones.
  * 
  * @param players - Array of players to insert/update
