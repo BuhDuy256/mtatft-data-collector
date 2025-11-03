@@ -5,9 +5,11 @@ import { isAxiosError } from 'axios';
 import { RiotAccountSchema, type RiotAccount } from '../models/riot/RiotAccountModels';
 
 /**
- * Fetch account information (gameName, tagLine) cho một player
+ * Fetch account information (gameName, tagLine) for a single player
+ * Handles 404 errors gracefully (account not found).
+ * 
  * @param puuid - Player PUUID
- * @returns RiotAccount object hoặc null nếu không tìm thấy
+ * @returns RiotAccount object or null if not found
  */
 export async function fetchPlayerAccount(puuid: string): Promise<RiotAccount | null> {
     try {
@@ -32,9 +34,11 @@ export async function fetchPlayerAccount(puuid: string): Promise<RiotAccount | n
 }
 
 /**
- * Fetch account information cho nhiều players
- * @param puuids - Array of PUUIDs
- * @returns Array of RiotAccount objects (chỉ players tìm thấy)
+ * Fetch account information for multiple players in batch
+ * DEPRECATED: Prefer using fetchAndSavePlayerAccounts() for stream processing.
+ * 
+ * @param puuids - Array of player PUUIDs
+ * @returns Array of RiotAccount objects (only found players)
  */
 export async function fetchPlayerAccounts(puuids: string[]): Promise<RiotAccount[]> {
     const accounts: RiotAccount[] = [];
@@ -58,16 +62,19 @@ export async function fetchPlayerAccounts(puuids: string[]): Promise<RiotAccount
 }
 
 /**
- * STREAM VERSION: Fetch và save account ngay vào DB
- * @param puuids - Array of PUUIDs
- * @param onAccountFetched - Callback để save vào DB
- * @returns Số lượng accounts đã fetch thành công
+ * Fetch account info with streaming database saves
+ * RECOMMENDED: Use this to avoid memory issues with large player sets.
+ * Fetches one account at a time and immediately saves to database via callback.
+ * 
+ * @param puuids - Array of player PUUIDs
+ * @param on_account_fetched - Callback to save account to database
+ * @returns Number of accounts successfully fetched and saved
  */
 export async function fetchAndSavePlayerAccounts(
     puuids: string[],
-    onAccountFetched: (account: RiotAccount) => Promise<void>
+    on_account_fetched: (account: RiotAccount) => Promise<void>
 ): Promise<number> {
-    let successCount = 0;
+    let success_count = 0;
     let i = 0;
     
     console.log(`(INFO) Fetching and saving account info for ${puuids.length} players...`);
@@ -80,8 +87,8 @@ export async function fetchAndSavePlayerAccounts(
         if (account) {
             console.log(`... Found: ${account.gameName}#${account.tagLine}`);
             try {
-                await onAccountFetched(account);
-                successCount++;
+                await on_account_fetched(account);
+                success_count++;
                 console.log(`... Saved to DB ✓`);
             } catch (error) {
                 console.error(`... Failed to save: ${error instanceof Error ? error.message : String(error)}`);
@@ -89,6 +96,6 @@ export async function fetchAndSavePlayerAccounts(
         }
     }
     
-    console.log(`(INFO) Successfully fetched and saved ${successCount}/${puuids.length} accounts.`);
-    return successCount;
+    console.log(`(INFO) Successfully fetched and saved ${success_count}/${puuids.length} accounts.`);
+    return success_count;
 }

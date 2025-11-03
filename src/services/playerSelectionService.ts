@@ -1,19 +1,27 @@
 import { type RiotHighTierEntry, type RiotLowTierEntry } from '../models/riot/RiotPlayerModels';
 import { MATCHES_PER_PLAYER } from '../utils/constant';
 
-export function randomPlayersBasedOnMatchGoal<T extends RiotHighTierEntry | RiotLowTierEntry>(
+/**
+ * Select random players to meet match collection goal
+ * Uses Fisher-Yates shuffle algorithm for unbiased randomization.
+ * 
+ * @param players - Array of player entries to select from
+ * @param match_goal - Target number of matches to collect
+ * @returns Randomly selected subset of players sufficient to reach match goal
+ */
+export function selectRandomPlayers<T extends RiotHighTierEntry | RiotLowTierEntry>(
     players: T[], 
-    matchGoal: number
+    match_goal: number
 ): T[] {    
     // Calculate how many players needed
-    const playersNeeded = Math.ceil(matchGoal / MATCHES_PER_PLAYER);
+    const players_needed = Math.ceil(match_goal / MATCHES_PER_PLAYER);
     
-    console.log(`(INFO) Match goal: ${matchGoal}`);
+    console.log(`(INFO) Match goal: ${match_goal}`);
     console.log(`(INFO) Players available: ${players.length}`);
-    console.log(`(INFO) Players needed (${matchGoal} / ${MATCHES_PER_PLAYER}): ${playersNeeded}`);
+    console.log(`(INFO) Players needed (${match_goal} / ${MATCHES_PER_PLAYER}): ${players_needed}`);
     
     // If we need more players than available, return all
-    if (playersNeeded >= players.length) {
+    if (players_needed >= players.length) {
         console.log(`(INFO) Using all ${players.length} players`);
         return players;
     }
@@ -26,23 +34,31 @@ export function randomPlayersBasedOnMatchGoal<T extends RiotHighTierEntry | Riot
     }
     
     // Return first N players
-    const selected = shuffled.slice(0, playersNeeded);
+    const selected = shuffled.slice(0, players_needed);
     console.log(`(OK) Selected ${selected.length} random players`);
     
     return selected;
 }
 
-export function selectTopPlayersByMatchGoal<T extends RiotHighTierEntry | RiotLowTierEntry>(
+/**
+ * Select top-ranked players to meet match collection goal
+ * Sorts players by league points and takes the highest-ranked subset.
+ * 
+ * @param players - Array of player entries to select from
+ * @param match_goal - Target number of matches to collect
+ * @returns Top-ranked players sufficient to reach match goal
+ */
+export function selectTopPlayers<T extends RiotHighTierEntry | RiotLowTierEntry>(
     players: T[], 
-    matchGoal: number
+    match_goal: number
 ): T[] {
-    const playersNeeded = Math.ceil(matchGoal / MATCHES_PER_PLAYER);
+    const players_needed = Math.ceil(match_goal / MATCHES_PER_PLAYER);
     
-    console.log(`(INFO) Match goal: ${matchGoal}`);
+    console.log(`(INFO) Match goal: ${match_goal}`);
     console.log(`(INFO) Players available: ${players.length}`);
-    console.log(`(INFO) Players needed: ${playersNeeded}`);
+    console.log(`(INFO) Players needed: ${players_needed}`);
     
-    if (playersNeeded >= players.length) {
+    if (players_needed >= players.length) {
         console.log(`(INFO) Using all ${players.length} players`);
         return players;
     }
@@ -51,7 +67,7 @@ export function selectTopPlayersByMatchGoal<T extends RiotHighTierEntry | RiotLo
     const sorted = [...players].sort((a, b) => b.leaguePoints - a.leaguePoints);
     
     // Return top N players
-    const selected = sorted.slice(0, playersNeeded);
+    const selected = sorted.slice(0, players_needed);
     console.log(`(INFO) Selected top ${selected.length} players (${selected[0].leaguePoints} - ${selected[selected.length - 1].leaguePoints} LP)`);
     
     return selected;

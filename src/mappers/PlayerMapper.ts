@@ -7,12 +7,15 @@ import { PlayerDBSchema, type PlayerDB } from '../models/database/PlayerDBModel'
  */
 
 /**
- * Map a single Riot player entry to database format
+ * Map single Riot player entry to database format
+ * Transforms field names from camelCase (API) to snake_case (DB).
+ * Validates output against PlayerDBSchema.
+ * 
  * @param player - Riot API player entry (High or Low tier)
  * @returns Database player model
  * @throws ZodError if validation fails
  */
-export function mapRiotPlayerToDB<T extends RiotHighTierEntry | RiotLowTierEntry>(
+export function mapRiotPlayerToDatabase<T extends RiotHighTierEntry | RiotLowTierEntry>(
     player: T
 ): PlayerDB {
     const mapped = {
@@ -34,11 +37,13 @@ export function mapRiotPlayerToDB<T extends RiotHighTierEntry | RiotLowTierEntry
 
 /**
  * Map array of Riot player entries to database format
+ * Batch version of mapRiotPlayerToDatabase().
+ * 
  * @param players - Array of Riot API player entries
  * @returns Array of database player models
  */
-export function mapRiotPlayersToDB<T extends RiotHighTierEntry | RiotLowTierEntry>(
+export function mapRiotPlayersToDatabase<T extends RiotHighTierEntry | RiotLowTierEntry>(
     players: T[]
 ): PlayerDB[] {
-    return players.map(mapRiotPlayerToDB);
+    return players.map(mapRiotPlayerToDatabase);
 }

@@ -14,14 +14,14 @@ import {
 } from './models/riot/RiotTierModels';
 
 // Services
-import { fecthPlayersBasedTier } from './services/playerCollectorService';
-import { randomPlayersBasedOnMatchGoal } from './services/playerSelectionService';
-import { collectMatchIDBaseOnPlayerPUUIDs, fetchAndSaveMatchDetails, type MatchDetailResult } from './services/matchCollectorService';
+import { fetchPlayersFromTier } from './services/playerCollectorService';
+import { selectRandomPlayers } from './services/playerSelectionService';
+import { collectMatchIdsFromPlayers, fetchAndSaveMatchDetails, type MatchDetailResult } from './services/matchCollectorService';
 import { fetchAndSavePlayerAccounts } from './services/accountCollectorService';
 import { fetchAndSavePlayerLeagues } from './services/leagueCollectorService';
 
 // Mappers
-import { mapRiotPlayersToDB } from './mappers/PlayerMapper';
+import { mapRiotPlayersToDatabase } from './mappers/PlayerMapper';
 
 // Repository
 import { upsertPlayers, updatePlayerAccount, updatePlayerLeague, getAllPlayerPuuids, deletePlayersWithoutMatches } from './repository/playerRepository';
@@ -33,40 +33,40 @@ import type { MatchDB, PlayerMatchLinkDB } from './models/database/MatchDBMode';
 // Utils
 import { RIOT_MATCH_REGION } from './utils/api';
 
-// --- LOG ---
-const logDir = path.join(process.cwd(), 'logs');
-if (!fs.existsSync(logDir)) fs.mkdirSync(logDir);
+// --- LOGGING SETUP ---
+const log_dir = path.join(process.cwd(), 'logs');
+if (!fs.existsSync(log_dir)) fs.mkdirSync(log_dir);
 
-const logFile = path.join(logDir, 'index.log');
+const log_file = path.join(log_dir, 'index.log');
+const log_stream = fs.createWriteStream(log_file, { flags: 'a' });
 
-const logStream = fs.createWriteStream(logFile, { flags: 'a' });
-
+// Override console methods to write to log file
 ['log', 'error', 'warn', 'info', 'debug'].forEach((method) => {
     const original = (console as any)[method];
     (console as any)[method] = (...args: any[]) => {
         const message = args.map(String).join(' ');
         const timestamp = new Date().toISOString();
-        logStream.write(`[${timestamp}] [${method.toUpperCase()}] ${message}\n`);
+        log_stream.write(`[${timestamp}] [${method.toUpperCase()}] ${message}\n`);
         original.apply(console, args);
     };
 });
 
-// --- CLI ARGUMENTS --- 
+// --- CLI ARGUMENTS PARSING --- 
 const args = process.argv.slice(2);
-const tierArg = args[0];
-const matchGoalArg = args[1];
+const tier_arg = args[0];
+const match_goal_arg = args[1];
 
-const parsedTier = TierSchema.safeParse(tierArg);
+const parsed_tier = TierSchema.safeParse(tier_arg);
 
-if (!parsedTier.success) {
-    const allTiers = [...HIGH_TIERS, ...LOW_TIERS].join(', ');
+if (!parsed_tier.success) {
+    const all_tiers = [...HIGH_TIERS, ...LOW_TIERS].join(', ');
     throw new Error(
-        `(ERROR) Invalid tier: "${tierArg}". Must be one of: ${allTiers}`
+        `(ERROR) Invalid tier: "${tier_arg}". Must be one of: ${all_tiers}`
     );
 }
 
-const tier: Tier = parsedTier.data;
-const match_goal = parseInt(matchGoalArg || '');
+const tier: Tier = parsed_tier.data;
+const match_goal = parseInt(match_goal_arg || '');
 
 if (isNaN(match_goal)) {
     throw new Error(
@@ -75,135 +75,148 @@ if (isNaN(match_goal)) {
 }
 
 /**
- * STAGE 1: Collect tier-based players and insert into database
- * @returns Set of PUUIDs that were successfully inserted into DB
+ * Collect tier-based seed players and insert into database
+ * Fetches players from specified tier/divisions, selects random subset based on match goal,
+ * and upserts to database
+ * 
+ * @param tier - Tier to fetch players from (CHALLENGER, GRANDMASTER, etc.)
+ * @param match_goal - Target number of matches to collect (used for player selection)
+ * @param divisions - Array of divisions to fetch (1-4 for non-Apex tiers)
+ * @param pages - Array of page numbers to fetch
+ * @returns Set of PUUIDs that were successfully inserted into database
  */
-async function collectPlayersBaseOnTier(
+async function collectTierBasedPlayers(
     tier: Tier, 
-    matchGoal: number,
+    match_goal: number,
     divisions: Division[] = [1, 2, 3, 4],
     pages: number[] = [1]
 ): Promise<Set<string>> {
     console.log(`(INFO) Stage 1: Collecting players...`);
     
     // Step 1: Fetch and select players
-    const raw_players = await fecthPlayersBasedTier(tier, divisions, pages);
-    const players = randomPlayersBasedOnMatchGoal(raw_players, matchGoal);
-    const players_to_upsert = mapRiotPlayersToDB(players);
+    const raw_players = await fetchPlayersFromTier(tier, divisions, pages);
+    const players = selectRandomPlayers(raw_players, match_goal);
+    const players_to_upsert = mapRiotPlayersToDatabase(players);
 
     // Step 2: Upsert to database via repository
-    const upsertedPuuids = await upsertPlayers(players_to_upsert);
+    const upserted_puuids = await upsertPlayers(players_to_upsert);
     
-    // Step 3: Build Set from successfully upserted PUUIDs
-    const puuidSeedList = new Set<string>(upsertedPuuids);
+    // Step 3: Build set from successfully upserted PUUIDs
+    const puuid_seed_list = new Set<string>(upserted_puuids);
     
-    console.log(`    - Seed list contains ${puuidSeedList.size} unique PUUIDs`);
+    console.log(`    - Seed list contains ${puuid_seed_list.size} unique PUUIDs`);
     
-    return puuidSeedList;
+    return puuid_seed_list;
 }
 
 /**
- * STAGE 2: Collect matches từ seed players (STREAM VERSION)
- * Fetch match và SAVE NGAY vào DB, không đợi fetch hết
+ * Collect matches from seed players using stream processing
+ * Fetches match IDs from players, then streams match details with immediate database saves.
+ * For each match: saves full JSONB data, extracts participants as player stubs, creates links.
+ * 
+ * @param puuid_seed_list - Set of player PUUIDs to fetch matches from
+ * @param region - Region identifier for match data (e.g., 'sea', 'na1')
  */
-async function collectMatchBaseOnPlayerPUUIDs(
+async function collectMatchesFromPlayers(
     puuid_seed_list: Set<string>,
     region: string
 ): Promise<void> {
     console.log(`(INFO) Stage 2: Collecting matches from ${puuid_seed_list.size} seed players...`);
     
-    // Step 1: Lấy match IDs từ seed players
-    const matchIdSet = await collectMatchIDBaseOnPlayerPUUIDs(puuid_seed_list);
+    // Step 1: Fetch match IDs from seed players
+    const match_id_set = await collectMatchIdsFromPlayers(puuid_seed_list);
     
-    if (matchIdSet.size === 0) {
+    if (match_id_set.size === 0) {
         console.log("(WARNING) No match IDs found.");
         return;
     }
     
-    let matchCount = 0;
-    let totalPlayers = new Set<string>();
-    let totalLinks = 0;
+    let match_count = 0;
+    let total_players = new Set<string>();
+    let total_links = 0;
     
-    // Step 2: Fetch và save ngay từng match
-    await fetchAndSaveMatchDetails(matchIdSet, region, async (matchResult: MatchDetailResult) => {
-        matchCount++;
+    // Step 2: Stream fetch and immediately save each match
+    await fetchAndSaveMatchDetails(match_id_set, region, async (match_result: MatchDetailResult) => {
+        match_count++;
         
-        // Save match vào DB
-        const matchDB: MatchDB = {
-            match_id: matchResult.matchId,
-            data: matchResult.fullMatchData,
+        // Save match to database
+        const match_db: MatchDB = {
+            match_id: match_result.matchId,
+            data: match_result.fullMatchData,
             is_processed: false,
             region: region
         };
         
         const { upsertMatch } = await import('./repository/matchRepository');
-        await upsertMatch(matchDB);
+        await upsertMatch(match_db);
         
-        // Upsert player stubs
-        await upsertPlayerStubs(matchResult.playerPuuids);
-        matchResult.playerPuuids.forEach(puuid => totalPlayers.add(puuid));
+        // Upsert player stubs (puuid only, other fields default)
+        await upsertPlayerStubs(match_result.playerPuuids);
+        match_result.playerPuuids.forEach(puuid => total_players.add(puuid));
         
-        // Tạo links
-        const links: PlayerMatchLinkDB[] = matchResult.playerPuuids.map(puuid => ({
+        // Create player-match links
+        const links: PlayerMatchLinkDB[] = match_result.playerPuuids.map(puuid => ({
             puuid,
-            match_id: matchResult.matchId
+            match_id: match_result.matchId
         }));
         await upsertPlayerMatchLinks(links);
-        totalLinks += links.length;
+        total_links += links.length;
     });
     
     console.log(`(OK) Stage 2 Complete!`);
-    console.log(`    - Matches saved: ${matchCount}`);
-    console.log(`    - Unique players found: ${totalPlayers.size}`);
-    console.log(`    - Links created: ${totalLinks}`);
+    console.log(`    - Matches saved: ${match_count}`);
+    console.log(`    - Unique players found: ${total_players.size}`);
+    console.log(`    - Links created: ${total_links}`);
 }
 
 /**
- * STAGE 4: Enrich player account data (STREAM VERSION)
- * Fetch account và SAVE NGAY vào DB
+ * Enrich player account data using stream processing
+ * Fetches Riot account info (gameName, tagLine) for all players and immediately updates database.
+ * Uses streaming approach - fetch one, save one.
  */
 async function enrichPlayerAccounts(): Promise<void> {
     console.log(`(INFO) Stage 4: Enriching player account data...`);
     
-    // Lấy tất cả player PUUIDs
-    const allPuuids = await getAllPlayerPuuids();
+    // Fetch all player PUUIDs from database
+    const all_puuids = await getAllPlayerPuuids();
     
-    if (allPuuids.length === 0) {
+    if (all_puuids.length === 0) {
         console.log("(WARNING) No players found in database. Skipping Stage 4.");
         return;
     }
     
-    console.log(`(INFO) Updating account info for ${allPuuids.length} players...`);
+    console.log(`(INFO) Updating account info for ${all_puuids.length} players...`);
     
-    // Fetch và save ngay từng account
-    const updatedCount = await fetchAndSavePlayerAccounts(allPuuids, async (account) => {
+    // Stream fetch and immediately save each account
+    const updated_count = await fetchAndSavePlayerAccounts(all_puuids, async (account) => {
         await updatePlayerAccount(account.puuid, account.gameName, account.tagLine);
     });
     
     console.log(`(OK) Stage 4 Complete!`);
-    console.log(`    - Total players: ${allPuuids.length}`);
-    console.log(`    - Successfully updated: ${updatedCount}`);
+    console.log(`    - Total players: ${all_puuids.length}`);
+    console.log(`    - Successfully updated: ${updated_count}`);
 }
 
 /**
- * STAGE 5: Enrich player league data (STREAM VERSION)
- * Fetch league và SAVE NGAY vào DB, chỉ lấy RANKED_TFT
+ * Enrich player league data using stream processing
+ * Fetches RANKED_TFT league entries (tier, rank, LP, W/L) for all players and immediately updates database.
+ * Filters to only RANKED_TFT queue type, ignoring other modes like RANKED_TFT_TURBO.
  */
 async function enrichPlayerLeagues(): Promise<void> {
     console.log(`(INFO) Stage 5: Enriching player league data (RANKED_TFT only)...`);
     
-    // Lấy tất cả player PUUIDs
-    const allPuuids = await getAllPlayerPuuids();
+    // Fetch all player PUUIDs from database
+    const all_puuids = await getAllPlayerPuuids();
     
-    if (allPuuids.length === 0) {
+    if (all_puuids.length === 0) {
         console.log("(WARNING) No players found in database. Skipping Stage 5.");
         return;
     }
     
-    console.log(`(INFO) Updating league info for ${allPuuids.length} players...`);
+    console.log(`(INFO) Updating league info for ${all_puuids.length} players...`);
     
-    // Fetch và save ngay từng league entry
-    const updatedCount = await fetchAndSavePlayerLeagues(allPuuids, async (league) => {
+    // Stream fetch and immediately save each league entry
+    const updated_count = await fetchAndSavePlayerLeagues(all_puuids, async (league) => {
         await updatePlayerLeague(league.puuid, {
             tier: league.tier,
             rank: league.rank,
@@ -218,58 +231,68 @@ async function enrichPlayerLeagues(): Promise<void> {
     });
     
     console.log(`(OK) Stage 5 Complete!`);
-    console.log(`    - Total players: ${allPuuids.length}`);
-    console.log(`    - Successfully updated: ${updatedCount}`);
+    console.log(`    - Total players: ${all_puuids.length}`);
+    console.log(`    - Successfully updated: ${updated_count}`);
 }
 
 /**
- * STAGE 3: Clean up orphaned players
- * Xóa players không có match nào trong database
- * Sử dụng SQL stored procedure để performance tốt hơn
+ * Clean up orphaned players from database
+ * Deletes players who don't have any associated matches in players_matches_link table.
+ * Uses SQL stored procedure (delete_orphaned_players) for optimal performance.
+ * 
+ * @returns Number of players deleted
  */
 async function cleanUpOrphanedPlayers(): Promise<void> {
     console.log(`(INFO) Stage 3: Cleaning up orphaned players...`);
     
-    const deletedCount = await deletePlayersWithoutMatches();
+    const deleted_count = await deletePlayersWithoutMatches();
     
     console.log(`(OK) Stage 3 Complete!`);
-    console.log(`    - Orphaned players deleted: ${deletedCount}`);
+    console.log(`    - Orphaned players deleted: ${deleted_count}`);
 }
 
-// --- MAIN FUNCTION ---
-async function main() {
+/**
+ * Main pipeline orchestrator
+ * Executes 5-stage data collection pipeline:
+ * 1. Collect seed players from specified tier
+ * 2. Collect matches from those players (with streaming saves)
+ * 3. Clean up orphaned players (no matches)
+ * 4. Enrich player account data (gameName, tagLine)
+ * 5. Enrich player league data (tier, rank, LP, W/L)
+ */
+async function runPipeline() {
     try {
         console.log(`(INFO) Starting data collection for tier: ${tier}, match goal: ${match_goal}`);
         
-        // --- STAGE 1: COLLECT TIER-BASED PLAYERS ---
-        const puuidSeedList = await collectPlayersBaseOnTier(tier, match_goal, [2, 3], [1, 2]);
+        // --- STAGE 1: COLLECT TIER-BASED SEED PLAYERS ---
+        const puuid_seed_list = await collectTierBasedPlayers(tier, match_goal, [2, 3], [1, 2]);
         
-        if (puuidSeedList.size === 0) {
+        if (puuid_seed_list.size === 0) {
             console.log("(WARNING) No seed players found. Stopping.");
             return;
         }
         
-        // --- STAGE 2: COLLECT MATCHES ---
-        await collectMatchBaseOnPlayerPUUIDs(puuidSeedList, RIOT_MATCH_REGION);
+        // --- STAGE 2: COLLECT MATCHES FROM PLAYERS ---
+        await collectMatchesFromPlayers(puuid_seed_list, RIOT_MATCH_REGION);
         
-        // --- STAGE 3: DELETE ALL PLAYERS DON'T HAVE MATCH IN DATABASE ---
+        // --- STAGE 3: DELETE ORPHANED PLAYERS ---
         await cleanUpOrphanedPlayers();
         
-        // --- STAGE 4: COLLECT PLAYER ACCOUNT DATA ---
+        // --- STAGE 4: ENRICH PLAYER ACCOUNT DATA ---
         await enrichPlayerAccounts();
         
-        // --- STAGE 5: COLLECT PLAYER LEAGUE DATA ---
+        // --- STAGE 5: ENRICH PLAYER LEAGUE DATA ---
         await enrichPlayerLeagues();
         
         console.log(`(OK) Data collection complete!`);
     } catch (error) {
-        console.error(`(ERROR) Fatal error in main:`, error);
+        console.error(`(ERROR) Fatal error in pipeline:`, error);
         process.exit(1);
     }
 }
 
-// Run main function
-main(); 
+// Execute main pipeline
+runPipeline(); 
 
 
 

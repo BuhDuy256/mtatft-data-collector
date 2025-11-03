@@ -5,9 +5,11 @@ import { isAxiosError } from 'axios';
 import { RiotLeagueEntriesSchema, type RiotLeagueEntry } from '../models/riot/RiotLeagueModels';
 
 /**
- * Fetch league entries cho một player và lọc lấy RANKED_TFT
+ * Fetch league entry for a single player (RANKED_TFT only)
+ * Filters out other queue types (RANKED_TFT_TURBO, etc.).
+ * 
  * @param puuid - Player PUUID
- * @returns RiotLeagueEntry cho RANKED_TFT hoặc null nếu không tìm thấy
+ * @returns RiotLeagueEntry for RANKED_TFT or null if not found
  */
 export async function fetchPlayerLeague(puuid: string): Promise<RiotLeagueEntry | null> {
     try {
@@ -15,18 +17,18 @@ export async function fetchPlayerLeague(puuid: string): Promise<RiotLeagueEntry 
             platformApi.get(`/tft/league/v1/by-puuid/${puuid}`));
         await sleep(RATE_LIMIT_DELAY);
         
-        // Validate response - API trả về array of league entries
-        const leagueEntries = RiotLeagueEntriesSchema.parse(response.data);
+        // Validate response - API returns array of league entries
+        const league_entries = RiotLeagueEntriesSchema.parse(response.data);
         
-        // Lọc lấy RANKED_TFT entry
-        const rankedTftEntry = leagueEntries.find(entry => entry.queueType === 'RANKED_TFT');
+        // Filter for RANKED_TFT entry only
+        const ranked_tft_entry = league_entries.find(entry => entry.queueType === 'RANKED_TFT');
         
-        if (!rankedTftEntry) {
+        if (!ranked_tft_entry) {
             console.warn(`(WARNING) No RANKED_TFT data found for PUUID: ${puuid.substring(0, 10)}...`);
             return null;
         }
         
-        return rankedTftEntry;
+        return ranked_tft_entry;
     } catch (error) {
         if (isAxiosError(error)) {
             if (error.response?.status === 404) {
@@ -42,12 +44,14 @@ export async function fetchPlayerLeague(puuid: string): Promise<RiotLeagueEntry 
 }
 
 /**
- * Fetch league entries cho nhiều players (chỉ RANKED_TFT)
- * @param puuids - Array of PUUIDs
- * @returns Array of RiotLeagueEntry objects (chỉ players có RANKED_TFT data)
+ * Fetch league entries for multiple players in batch (RANKED_TFT only)
+ * DEPRECATED: Prefer using fetchAndSavePlayerLeagues() for stream processing.
+ * 
+ * @param puuids - Array of player PUUIDs
+ * @returns Array of RiotLeagueEntry objects (only players with RANKED_TFT data)
  */
 export async function fetchPlayerLeagues(puuids: string[]): Promise<RiotLeagueEntry[]> {
-    const leagueEntries: RiotLeagueEntry[] = [];
+    const league_entries: RiotLeagueEntry[] = [];
     let i = 0;
     
     console.log(`(INFO) Fetching league info for ${puuids.length} players...`);
@@ -58,26 +62,29 @@ export async function fetchPlayerLeagues(puuids: string[]): Promise<RiotLeagueEn
         
         const league = await fetchPlayerLeague(puuid);
         if (league) {
-            leagueEntries.push(league);
+            league_entries.push(league);
             console.log(`... Found: ${league.tier} ${league.rank} (${league.leaguePoints} LP)`);
         }
     }
     
-    console.log(`(INFO) Successfully fetched ${leagueEntries.length}/${puuids.length} league entries.`);
-    return leagueEntries;
+    console.log(`(INFO) Successfully fetched ${league_entries.length}/${puuids.length} league entries.`);
+    return league_entries;
 }
 
 /**
- * STREAM VERSION: Fetch và save league ngay vào DB
- * @param puuids - Array of PUUIDs
- * @param onLeagueFetched - Callback để save vào DB
- * @returns Số lượng leagues đã fetch thành công
+ * Fetch league info with streaming database saves
+ * RECOMMENDED: Use this to avoid memory issues with large player sets.
+ * Fetches one league entry at a time and immediately saves to database via callback.
+ * 
+ * @param puuids - Array of player PUUIDs
+ * @param on_league_fetched - Callback to save league data to database
+ * @returns Number of league entries successfully fetched and saved
  */
 export async function fetchAndSavePlayerLeagues(
     puuids: string[],
-    onLeagueFetched: (league: RiotLeagueEntry) => Promise<void>
+    on_league_fetched: (league: RiotLeagueEntry) => Promise<void>
 ): Promise<number> {
-    let successCount = 0;
+    let success_count = 0;
     let i = 0;
     
     console.log(`(INFO) Fetching and saving league info for ${puuids.length} players...`);
@@ -90,8 +97,8 @@ export async function fetchAndSavePlayerLeagues(
         if (league) {
             console.log(`... Found: ${league.tier} ${league.rank} (${league.leaguePoints} LP)`);
             try {
-                await onLeagueFetched(league);
-                successCount++;
+                await on_league_fetched(league);
+                success_count++;
                 console.log(`... Saved to DB ✓`);
             } catch (error) {
                 console.error(`... Failed to save: ${error instanceof Error ? error.message : String(error)}`);
@@ -99,6 +106,6 @@ export async function fetchAndSavePlayerLeagues(
         }
     }
     
-    console.log(`(INFO) Successfully fetched and saved ${successCount}/${puuids.length} league entries.`);
-    return successCount;
+    console.log(`(INFO) Successfully fetched and saved ${success_count}/${puuids.length} league entries.`);
+    return success_count;
 }

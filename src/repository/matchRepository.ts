@@ -2,15 +2,18 @@ import { supabase } from '../database/supabaseClient';
 import { MatchDBSchema, type MatchDB, PlayerMatchLinkDBSchema, type PlayerMatchLinkDB } from '../models/database/MatchDBMode';
 
 /**
- * Insert hoặc update match vào database
- * Lưu full JSON vào cột data (JSONB)
+ * Upsert single match into database
+ * Stores full match JSON in JSONB 'data' column.
+ * Uses ON CONFLICT to update if match_id already exists.
+ * 
+ * @param match_data - Match data including JSONB payload
  */
-export async function upsertMatch(matchData: MatchDB): Promise<void> {
-    const validatedMatch = MatchDBSchema.parse(matchData);
+export async function upsertMatch(match_data: MatchDB): Promise<void> {
+    const validated_match = MatchDBSchema.parse(match_data);
     
     const { error } = await supabase
         .from('matches')
-        .upsert(validatedMatch, { onConflict: 'match_id' });
+        .upsert(validated_match, { onConflict: 'match_id' });
     
     if (error) {
         throw new Error(`Error upserting match: ${error.message} - ${error.details}`);
@@ -18,16 +21,19 @@ export async function upsertMatch(matchData: MatchDB): Promise<void> {
 }
 
 /**
- * Batch insert/update nhiều matches
+ * Batch upsert multiple matches into database
+ * DEPRECATED: Prefer stream processing with individual upserts.
+ * 
+ * @param matches - Array of match data
  */
 export async function upsertMatches(matches: MatchDB[]): Promise<void> {
     if (matches.length === 0) return;
     
-    const validatedMatches = matches.map(m => MatchDBSchema.parse(m));
+    const validated_matches = matches.map(m => MatchDBSchema.parse(m));
     
     const { error } = await supabase
         .from('matches')
-        .upsert(validatedMatches, { onConflict: 'match_id' });
+        .upsert(validated_matches, { onConflict: 'match_id' });
     
     if (error) {
         throw new Error(`Error upserting matches: ${error.message} - ${error.details}`);
@@ -35,18 +41,22 @@ export async function upsertMatches(matches: MatchDB[]): Promise<void> {
 }
 
 /**
- * Insert player stub (chỉ có puuid, các field khác dùng giá trị mặc định)
- * Sử dụng ignoreDuplicates để không overwrite players đã tồn tại
+ * Upsert player stubs (minimal player records with default values)
+ * Creates placeholder records for players discovered in matches.
+ * Uses ignoreDuplicates to avoid overwriting existing players.
+ * Player stubs will be enriched later with account and league data.
+ * 
+ * @param puuids - Array of player PUUIDs to create stubs for
  */
 export async function upsertPlayerStubs(puuids: string[]): Promise<void> {
     if (puuids.length === 0) return;
     
-    // Tạo player stubs với giá trị mặc định cho các field bắt buộc
-    const playerStubs = puuids.map(puuid => ({
+    // Create player stubs with default values for required fields
+    const player_stubs = puuids.map(puuid => ({
         puuid,
-        tier: 'UNKNOWN',           // Placeholder - sẽ update ở Stage 5
+        tier: 'UNKNOWN',           // Placeholder - will update in Stage 5
         league_points: 0,           // Default 0
-        rank: 'IV',                 // Default rank thấp nhất
+        rank: 'IV',                 // Default lowest rank
         wins: 0,                    // Default 0
         losses: 0,                  // Default 0
         veteran: false,
@@ -57,9 +67,9 @@ export async function upsertPlayerStubs(puuids: string[]): Promise<void> {
     
     const { error } = await supabase
         .from('players')
-        .upsert(playerStubs, { 
+        .upsert(player_stubs, { 
             onConflict: 'puuid',
-            ignoreDuplicates: true // Không overwrite nếu player đã tồn tại
+            ignoreDuplicates: true // Don't overwrite if player already exists
         });
     
     if (error) {
@@ -68,16 +78,19 @@ export async function upsertPlayerStubs(puuids: string[]): Promise<void> {
 }
 
 /**
- * Tạo links giữa players và matches
+ * Create links between players and matches in junction table
+ * Uses ignoreDuplicates to handle existing relationships gracefully.
+ * 
+ * @param links - Array of player-match link records
  */
 export async function upsertPlayerMatchLinks(links: PlayerMatchLinkDB[]): Promise<void> {
     if (links.length === 0) return;
     
-    const validatedLinks = links.map(link => PlayerMatchLinkDBSchema.parse(link));
+    const validated_links = links.map(link => PlayerMatchLinkDBSchema.parse(link));
     
     const { error } = await supabase
         .from('players_matches_link')
-        .upsert(validatedLinks, {
+        .upsert(validated_links, {
             onConflict: 'puuid,match_id',
             ignoreDuplicates: true
         });
@@ -88,7 +101,10 @@ export async function upsertPlayerMatchLinks(links: PlayerMatchLinkDB[]): Promis
 }
 
 /**
- * Lấy số lượng matches hiện tại trong DB
+ * Get total count of matches currently in database
+ * Used for progress tracking and statistics.
+ * 
+ * @returns Number of matches in matches table
  */
 export async function getMatchCount(): Promise<number> {
     const { count, error } = await supabase

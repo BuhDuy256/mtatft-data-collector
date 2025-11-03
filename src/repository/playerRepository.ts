@@ -12,6 +12,14 @@ import type { PlayerDB } from '../models/database/PlayerDBModel';
  * @returns Array of PUUIDs that were successfully upserted
  * @throws Error if upsert fails
  */
+/**
+ * Upsert players into database
+ * Uses ON CONFLICT to update existing players or insert new ones.
+ * 
+ * @param players - Array of players to insert/update
+ * @returns Array of PUUIDs that were successfully upserted
+ * @throws Error if upsert fails
+ */
 export async function upsertPlayers(players: PlayerDB[]): Promise<string[]> {
     console.log(`(INFO) Upserting ${players.length} players to database...`);
 
@@ -26,12 +34,12 @@ export async function upsertPlayers(players: PlayerDB[]): Promise<string[]> {
     }
     
     // Extract PUUIDs from DB response
-    const upsertedPuuids = data?.map(row => row.puuid) || [];
+    const upserted_puuids = data?.map(row => row.puuid) || [];
     
-    console.log(`(OK) Successfully upserted ${upsertedPuuids.length} players to database.`);
+    console.log(`(OK) Successfully upserted ${upserted_puuids.length} players to database.`);
     console.log(`    - DB confirmed ${data?.length || 0} rows affected`);
     
-    return upsertedPuuids;
+    return upserted_puuids;
 }
 
 /**
@@ -75,7 +83,9 @@ export async function deletePlayersByPuuids(puuids: string[]): Promise<number> {
 
 /**
  * Delete players that don't have any matches
- * Uses SQL stored procedure for better performance
+ * Uses SQL stored procedure (delete_orphaned_players) for optimal performance.
+ * Stored procedure deletes players whose PUUID is not in players_matches_link table.
+ * 
  * @returns Number of deleted players
  */
 export async function deletePlayersWithoutMatches(): Promise<number> {
@@ -88,28 +98,30 @@ export async function deletePlayersWithoutMatches(): Promise<number> {
         throw error;
     }
     
-    const deletedCount = typeof data === 'number' ? data : 0;
-    console.log(`(OK) Deleted ${deletedCount} orphaned players.`);
+    const deleted_count = typeof data === 'number' ? data : 0;
+    console.log(`(OK) Deleted ${deleted_count} orphaned players.`);
     
-    return deletedCount;
+    return deleted_count;
 }
 
 /**
  * Update player account information (game_name, tag_line)
+ * Updates only the account fields, leaving league stats unchanged.
+ * 
  * @param puuid - Player PUUID
- * @param gameName - Riot ID game name
- * @param tagLine - Riot ID tag line
+ * @param game_name - Riot ID game name
+ * @param tag_line - Riot ID tag line
  */
 export async function updatePlayerAccount(
     puuid: string, 
-    gameName: string, 
-    tagLine: string
+    game_name: string, 
+    tag_line: string
 ): Promise<void> {
     const { error } = await supabase
         .from('players')
         .update({ 
-            game_name: gameName, 
-            tag_line: tagLine 
+            game_name: game_name, 
+            tag_line: tag_line 
         })
         .eq('puuid', puuid);
     
@@ -121,32 +133,36 @@ export async function updatePlayerAccount(
 
 /**
  * Batch update player accounts
- * @param updates - Array of { puuid, gameName, tagLine }
+ * DEPRECATED: Prefer stream processing with individual updates.
+ * 
+ * @param updates - Array of { puuid, game_name, tag_line }
  * @returns Number of updated players
  */
 export async function batchUpdatePlayerAccounts(
-    updates: Array<{ puuid: string; gameName: string; tagLine: string }>
+    updates: Array<{ puuid: string; game_name: string; tag_line: string }>
 ): Promise<number> {
     console.log(`(INFO) Batch updating ${updates.length} player accounts...`);
     
-    let successCount = 0;
+    let success_count = 0;
     
-    for (const { puuid, gameName, tagLine } of updates) {
+    for (const { puuid, game_name, tag_line } of updates) {
         try {
-            await updatePlayerAccount(puuid, gameName, tagLine);
-            successCount++;
+            await updatePlayerAccount(puuid, game_name, tag_line);
+            success_count++;
         } catch (error) {
             console.warn(`(WARN) Failed to update account for ${puuid}`);
         }
     }
     
-    console.log(`(OK) Successfully updated ${successCount}/${updates.length} player accounts`);
-    return successCount;
+    console.log(`(OK) Successfully updated ${success_count}/${updates.length} player accounts`);
+    return success_count;
 }
 
 /**
- * Get players missing account info (game_name hoặc tag_line là NULL)
- * @returns Array of PUUIDs
+ * Get players missing account information
+ * Returns players where game_name or tag_line is NULL.
+ * 
+ * @returns Array of PUUIDs for players without complete account data
  */
 export async function getPlayersMissingAccountInfo(): Promise<string[]> {
     const { data, error } = await supabase
@@ -164,7 +180,9 @@ export async function getPlayersMissingAccountInfo(): Promise<string[]> {
 
 /**
  * Get all player PUUIDs from database
- * @returns Array of all PUUIDs
+ * Fetches complete list of players for batch operations.
+ * 
+ * @returns Array of all PUUIDs in players table
  */
 export async function getAllPlayerPuuids(): Promise<string[]> {
     const { data, error } = await supabase
@@ -181,12 +199,14 @@ export async function getAllPlayerPuuids(): Promise<string[]> {
 
 /**
  * Update player league information (tier, rank, LP, wins, losses, etc.)
+ * Updates all ranked stats while leaving account info (game_name, tag_line) unchanged.
+ * 
  * @param puuid - Player PUUID
- * @param leagueData - League data to update
+ * @param league_data - League data to update
  */
 export async function updatePlayerLeague(
     puuid: string,
-    leagueData: {
+    league_data: {
         tier: string;
         rank: string;
         leaguePoints: number;
@@ -201,15 +221,15 @@ export async function updatePlayerLeague(
     const { error } = await supabase
         .from('players')
         .update({
-            tier: leagueData.tier,
-            rank: leagueData.rank,
-            league_points: leagueData.leaguePoints,
-            wins: leagueData.wins,
-            losses: leagueData.losses,
-            veteran: leagueData.veteran,
-            inactive: leagueData.inactive,
-            fresh_blood: leagueData.freshBlood,
-            hot_streak: leagueData.hotStreak
+            tier: league_data.tier,
+            rank: league_data.rank,
+            league_points: league_data.leaguePoints,
+            wins: league_data.wins,
+            losses: league_data.losses,
+            veteran: league_data.veteran,
+            inactive: league_data.inactive,
+            fresh_blood: league_data.freshBlood,
+            hot_streak: league_data.hotStreak
         })
         .eq('puuid', puuid);
     
@@ -221,6 +241,8 @@ export async function updatePlayerLeague(
 
 /**
  * Batch update player league data
+ * DEPRECATED: Prefer stream processing with individual updates.
+ * 
  * @param updates - Array of league update objects
  * @returns Number of updated players
  */
@@ -240,17 +262,17 @@ export async function batchUpdatePlayerLeagues(
 ): Promise<number> {
     console.log(`(INFO) Batch updating ${updates.length} player leagues...`);
     
-    let successCount = 0;
+    let success_count = 0;
     
     for (const update of updates) {
         try {
             await updatePlayerLeague(update.puuid, update);
-            successCount++;
+            success_count++;
         } catch (error) {
             console.warn(`(WARN) Failed to update league for ${update.puuid}`);
         }
     }
     
-    console.log(`(OK) Successfully updated ${successCount}/${updates.length} player leagues`);
-    return successCount;
+    console.log(`(OK) Successfully updated ${success_count}/${updates.length} player leagues`);
+    return success_count;
 }

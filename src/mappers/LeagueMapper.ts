@@ -1,30 +1,35 @@
 import { type RiotLeagueEntry } from '../models/riot/RiotLeagueModels';
 
 /**
- * Map RiotLeagueEntry từ API sang format để update vào DB
- * @param leagueEntry - League data từ Riot API
- * @returns Object với league fields để update
+ * Map Riot league entry to player update format for database
+ * Note: Uses camelCase field names (leaguePoints, freshBlood, hotStreak) 
+ * which match the database column names directly.
+ * 
+ * @param league_entry - League data from Riot API
+ * @returns Object with league fields for database update
  */
-export function mapRiotLeagueToPlayerUpdate(leagueEntry: RiotLeagueEntry) {
+export function mapRiotLeagueToPlayerUpdate(league_entry: RiotLeagueEntry) {
     return {
-        puuid: leagueEntry.puuid,
-        tier: leagueEntry.tier,
-        rank: leagueEntry.rank,
-        leaguePoints: leagueEntry.leaguePoints,
-        wins: leagueEntry.wins,
-        losses: leagueEntry.losses,
-        veteran: leagueEntry.veteran,
-        inactive: leagueEntry.inactive,
-        freshBlood: leagueEntry.freshBlood,
-        hotStreak: leagueEntry.hotStreak
+        puuid: league_entry.puuid,
+        tier: league_entry.tier,
+        rank: league_entry.rank,
+        leaguePoints: league_entry.leaguePoints,
+        wins: league_entry.wins,
+        losses: league_entry.losses,
+        veteran: league_entry.veteran,
+        inactive: league_entry.inactive,
+        freshBlood: league_entry.freshBlood,
+        hotStreak: league_entry.hotStreak
     };
 }
 
 /**
- * Map multiple RiotLeagueEntries sang DB update format
- * @param leagueEntries - Array of league data từ Riot API
+ * Map multiple Riot league entries to player update format
+ * Batch version of mapRiotLeagueToPlayerUpdate().
+ * 
+ * @param league_entries - Array of league data from Riot API
  * @returns Array of update objects
  */
-export function mapRiotLeaguesToPlayerUpdates(leagueEntries: RiotLeagueEntry[]) {
-    return leagueEntries.map(entry => mapRiotLeagueToPlayerUpdate(entry));
+export function mapRiotLeaguesToPlayerUpdates(league_entries: RiotLeagueEntry[]) {
+    return league_entries.map(entry => mapRiotLeagueToPlayerUpdate(entry));
 }
