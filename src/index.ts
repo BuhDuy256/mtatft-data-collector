@@ -18,13 +18,15 @@ import { fecthPlayersBasedTier } from './services/playerCollectorService';
 import { randomPlayersBasedOnMatchGoal } from './services/playerSelectionService';
 import { collectMatchIDBaseOnPlayerPUUIDs, collectMatchDetail } from './services/matchCollectorService';
 import { fetchPlayerAccounts } from './services/accountCollectorService';
+import { fetchPlayerLeagues } from './services/leagueCollectorService';
 
 // Mappers
 import { mapRiotPlayersToDB } from './mappers/PlayerMapper';
 import { mapRiotAccountsToPlayerUpdates } from './mappers/AccountMapper';
+import { mapRiotLeaguesToPlayerUpdates } from './mappers/LeagueMapper';
 
 // Repository
-import { upsertPlayers, batchUpdatePlayerAccounts, getAllPlayerPuuids } from './repository/playerRepository';
+import { upsertPlayers, batchUpdatePlayerAccounts, batchUpdatePlayerLeagues, getAllPlayerPuuids } from './repository/playerRepository';
 import { upsertMatches, upsertPlayerStubs, upsertPlayerMatchLinks } from './repository/matchRepository';
 
 // Models
@@ -213,30 +215,70 @@ async function enrichPlayerAccounts(): Promise<void> {
     console.log(`    - Successfully updated: ${updatedCount}`);
 }
 
+/**
+ * STAGE 5: Enrich player league data (tier, rank, LP, wins, losses, etc.)
+ * Update league info cho TẤT CẢ players, chỉ lấy RANKED_TFT queue
+ * 1. Lấy tất cả player PUUIDs
+ * 2. Fetch league data từ Riot API (filter RANKED_TFT)
+ * 3. Update vào DB
+ */
+async function enrichPlayerLeagues(): Promise<void> {
+    console.log(`(INFO) Stage 5: Enriching player league data (RANKED_TFT only)...`);
+    
+    // Step 1: Lấy TẤT CẢ player PUUIDs từ database
+    const allPuuids = await getAllPlayerPuuids();
+    
+    if (allPuuids.length === 0) {
+        console.log("(WARNING) No players found in database. Skipping Stage 5.");
+        return;
+    }
+    
+    console.log(`(INFO) Updating league info for ${allPuuids.length} players...`);
+    
+    // Step 2: Fetch league data từ Riot API (chỉ RANKED_TFT)
+    const leagues = await fetchPlayerLeagues(allPuuids);
+    
+    if (leagues.length === 0) {
+        console.log("(WARNING) No RANKED_TFT league entries fetched. Skipping update.");
+        return;
+    }
+    
+    // Step 3: Map sang DB format
+    const updates = mapRiotLeaguesToPlayerUpdates(leagues);
+    
+    // Step 4: Batch update vào DB
+    const updatedCount = await batchUpdatePlayerLeagues(updates);
+    
+    console.log(`(OK) Stage 5 Complete!`);
+    console.log(`    - Total players: ${allPuuids.length}`);
+    console.log(`    - RANKED_TFT entries fetched: ${leagues.length}`);
+    console.log(`    - Successfully updated: ${updatedCount}`);
+}
+
 // --- MAIN FUNCTION ---
 async function main() {
     try {
-        console.log(`(INFO) Starting data collection for tier: ${tier}, match goal: ${match_goal}`);
+        // console.log(`(INFO) Starting data collection for tier: ${tier}, match goal: ${match_goal}`);
         
-        // --- STAGE 1: COLLECT TIER-BASED PLAYERS ---
-        const puuidSeedList = await collectPlayersBaseOnTier(tier, match_goal, [2, 3], [1, 2]);
+        // // --- STAGE 1: COLLECT TIER-BASED PLAYERS ---
+        // const puuidSeedList = await collectPlayersBaseOnTier(tier, match_goal, [2, 3], [1, 2]);
         
-        if (puuidSeedList.size === 0) {
-            console.log("(WARNING) No seed players found. Stopping.");
-            return;
-        }
+        // if (puuidSeedList.size === 0) {
+        //     console.log("(WARNING) No seed players found. Stopping.");
+        //     return;
+        // }
         
-        // --- STAGE 2: COLLECT MATCHES ---
-        await collectMatchBaseOnPlayerPUUIDs(puuidSeedList, RIOT_MATCH_REGION);
+        // // --- STAGE 2: COLLECT MATCHES ---
+        // await collectMatchBaseOnPlayerPUUIDs(puuidSeedList, RIOT_MATCH_REGION);
         
-        // --- STAGE 3: DELETE ALL PLAYERS DON'T HAVE MATCH IN DATABASE ---
-        // TODO: Implement later
+        // // --- STAGE 3: DELETE ALL PLAYERS DON'T HAVE MATCH IN DATABASE ---
+        // // TODO: Implement later
         
-        // --- STAGE 4: COLLECT PLAYER ACCOUNT DATA ---
-        await enrichPlayerAccounts();
+        // // --- STAGE 4: COLLECT PLAYER ACCOUNT DATA ---
+        // await enrichPlayerAccounts();
         
         // --- STAGE 5: COLLECT PLAYER LEAGUE DATA ---
-        // TODO: Implement later
+        await enrichPlayerLeagues();
         
         console.log(`(OK) Data collection complete!`);
     } catch (error) {

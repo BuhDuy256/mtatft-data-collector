@@ -33,4 +33,10 @@ const accountApi: AxiosInstance = axios.create({
     headers: { "X-Riot-Token": RIOT_API_KEY }
 });
 
-export { HighTierLeagueApi, LowTierLeagueApi, matchApi, accountApi, RIOT_MATCH_REGION, RIOT_LEAGUE_REGION };
+// Platform API cho league entries by puuid (dùng RIOT_LEAGUE_REGION)
+const platformApi: AxiosInstance = axios.create({
+    baseURL: `https://${RIOT_LEAGUE_REGION}.api.riotgames.com`,
+    headers: { "X-Riot-Token": RIOT_API_KEY }
+});
+
+export { HighTierLeagueApi, LowTierLeagueApi, matchApi, accountApi, platformApi, RIOT_MATCH_REGION, RIOT_LEAGUE_REGION };

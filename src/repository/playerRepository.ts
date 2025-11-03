@@ -183,3 +183,79 @@ export async function getAllPlayerPuuids(): Promise<string[]> {
     
     return data?.map(row => row.puuid) || [];
 }
+
+/**
+ * Update player league information (tier, rank, LP, wins, losses, etc.)
+ * @param puuid - Player PUUID
+ * @param leagueData - League data to update
+ */
+export async function updatePlayerLeague(
+    puuid: string,
+    leagueData: {
+        tier: string;
+        rank: string;
+        leaguePoints: number;
+        wins: number;
+        losses: number;
+        veteran: boolean;
+        inactive: boolean;
+        freshBlood: boolean;
+        hotStreak: boolean;
+    }
+): Promise<void> {
+    const { error } = await supabase
+        .from('players')
+        .update({
+            tier: leagueData.tier,
+            rank: leagueData.rank,
+            league_points: leagueData.leaguePoints,
+            wins: leagueData.wins,
+            losses: leagueData.losses,
+            veteran: leagueData.veteran,
+            inactive: leagueData.inactive,
+            fresh_blood: leagueData.freshBlood,
+            hot_streak: leagueData.hotStreak
+        })
+        .eq('puuid', puuid);
+    
+    if (error) {
+        console.error(`(ERROR) Error updating league for ${puuid}:`, error.message);
+        throw error;
+    }
+}
+
+/**
+ * Batch update player league data
+ * @param updates - Array of league update objects
+ * @returns Number of updated players
+ */
+export async function batchUpdatePlayerLeagues(
+    updates: Array<{
+        puuid: string;
+        tier: string;
+        rank: string;
+        leaguePoints: number;
+        wins: number;
+        losses: number;
+        veteran: boolean;
+        inactive: boolean;
+        freshBlood: boolean;
+        hotStreak: boolean;
+    }>
+): Promise<number> {
+    console.log(`(INFO) Batch updating ${updates.length} player leagues...`);
+    
+    let successCount = 0;
+    
+    for (const update of updates) {
+        try {
+            await updatePlayerLeague(update.puuid, update);
+            successCount++;
+        } catch (error) {
+            console.warn(`(WARN) Failed to update league for ${update.puuid}`);
+        }
+    }
+    
+    console.log(`(OK) Successfully updated ${successCount}/${updates.length} player leagues`);
+    return successCount;
+}
