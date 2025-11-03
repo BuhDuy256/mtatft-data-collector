@@ -1,7 +1,7 @@
 import { z } from 'zod'; // For runtime validation. Docs: https://zod.dev/api
-import { HighTierLeagueApi, LowTierLeagueApi } from '../../service/api';
-import { sleep, retryOnRateLimit } from '../../helper/helper';
-import { RATE_LIMIT_DELAY } from '../../utils/constant';
+import { HighTierLeagueApi, LowTierLeagueApi } from '../utils/api';
+import { sleep, retryOnRateLimit } from '../helper/helper';
+import { RATE_LIMIT_DELAY } from '../utils/constant';
 
 // --- BASE SCHEMA: Common fields for all player entries ---
 export const PlayerBaseSchema = z.object({
@@ -130,41 +130,40 @@ export async function fetchLowTierPlayers(
 }
 
 export async function fecthPlayersBasedTier(
-    tier: Tier,
-    divisions: Division[] = [1, 2, 3, 4],
-    pages: number[] = [1]  // Default: only page 1
+  tier: Tier,
+  divisions: Division[] = [1, 2, 3, 4],
+  pages: number[] = [1]  // Default: only page 1
 ): Promise<RiotLowTierEntry[] | RiotHighTierEntry[]> {
   try {
     if (isHighTier(tier)) {
-        console.log(`(INFO) Fetching high tier players: ${tier}`);
-        return await fetchHighTierPlayers(tier);
+      console.log(`(INFO) Fetching high tier players: ${tier}`);
+      return await fetchHighTierPlayers(tier);
     }
 
     if (isLowTier(tier)) {
       console.log(`(INFO) Fetching low tier players: ${tier} (all divisions, pages: [${pages.join(', ')}])`);
       const allPlayers: RiotLowTierEntry[] = [];
-
       for (const division of divisions) {
-            console.log(`(INFO) Fetching ${tier} division ${division}`);
+        console.log(`(INFO) Fetching ${tier} division ${division}`);
+        
+        // Fetch specified pages for this division
+        for (const page of pages) {
+          try {
+            const players = await fetchLowTierPlayers(tier, division, page);
             
-            // Fetch specified pages for this division
-            for (const page of pages) {
-                try {
-                    const players = await fetchLowTierPlayers(tier, division, page);
-                    
-                    if (players.length === 0) {
-                    console.log(`    ... Page ${page}: No players found`);
-                    continue;
-                    }
-                    
-                    console.log(`    ... Page ${page}: ${players.length} players`);
-                    allPlayers.push(...players);
-                } catch (error) {
-                    console.warn(`    ... Page ${page}: Error - ${error instanceof Error ? error.message : 'Unknown error'}`);
-                    // Continue with next page instead of breaking
-                }
+            if (players.length === 0) {
+              console.log(`    ... Page ${page}: No players found`);
+              continue;
             }
+            
+            console.log(`    ... Page ${page}: ${players.length} players`);
+            allPlayers.push(...players);
+          } catch (error) {
+            console.warn(`    ... Page ${page}: Error - ${error instanceof Error ? error.message : 'Unknown error'}`);
+            // Continue with next page instead of breaking
+          }
         }
+      }
 
       console.log(`(OK) Total ${tier} players: ${allPlayers.length}`);
       return allPlayers;

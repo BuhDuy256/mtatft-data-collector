@@ -4,18 +4,19 @@ import { supabase } from './database/supabaseClient';
 import axios, { AxiosInstance, isAxiosError } from 'axios';
 import * as dotenv from 'dotenv'; // For loading environment variables. Docs: https://www.npmjs.com/package/dotenv
 import { z } from 'zod'; // For runtime validation. Docs: https://zod.dev/api
-import { RiotHighTierEntry, RiotLowTierEntry } from './features/player_collector/tier_based_players_collector';
-import { randomPlayersBasedOnMatchGoal } from './features/player_collector/match_goal_based_players_collector';
-
 import { 
     TierSchema, 
     HIGH_TIERS, 
     LOW_TIERS,
     type Tier,
     type Division,
+    type RiotHighTierEntry, 
+    type RiotLowTierEntry,
     fecthPlayersBasedTier
-} from './features/player_collector/tier_based_players_collector';
-import { mapPlayersForDB } from './features/player_collector/transfer_players_for_db';
+} from './services/playerCollectorService';
+import { randomPlayersBasedOnMatchGoal } from './services/playerSelectionService';
+import { mapPlayersForDB } from './services/playerMappingService';
+import { upsertPlayers } from './repository/playerRepository';
 
 // --- LOG ---
 const logDir = path.join(process.cwd(), 'logs');
@@ -75,29 +76,12 @@ async function collectTierBasedPlayers(
     const players = randomPlayersBasedOnMatchGoal(raw_players, matchGoal);
     const players_to_upsert = mapPlayersForDB(players);
 
-    console.log(`(INFO) Upserting ${players_to_upsert.length} players to database...`);
-
-    // Step 2: Upsert to database
-    // Note: .upsert() with .select() returns ALL affected rows (both new inserts + updates)
-    // We use this to confirm all players were successfully processed
-    const { data, error: upsertError } = await supabase
-        .from('players')
-        .upsert(players_to_upsert, { onConflict: 'puuid' })
-        .select('puuid');
+    // Step 2: Upsert to database via repository
+    const upsertedPuuids = await upsertPlayers(players_to_upsert);
     
-    if (upsertError) {
-        console.error("(ERROR) Error upserting seed players:", upsertError.message, upsertError.details);
-        throw upsertError;
-    }
+    // Step 3: Build Set from successfully upserted PUUIDs
+    const puuidSeedList = new Set<string>(upsertedPuuids);
     
-    // Step 3: Build Set from successfully upserted players
-    // This includes both newly inserted AND updated existing players
-    const puuidSeedList = new Set<string>(
-        players_to_upsert.map(p => p.puuid)
-    );
-    
-    console.log(`(OK) Successfully upserted ${puuidSeedList.size} players to database.`);
-    console.log(`    - DB confirmed ${data?.length || 0} rows affected`);
     console.log(`    - Seed list contains ${puuidSeedList.size} unique PUUIDs`);
     
     return puuidSeedList;

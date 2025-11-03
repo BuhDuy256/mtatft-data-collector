@@ -1,11 +1,9 @@
-import { z } from 'zod';
-
 import {
     type RiotHighTierEntry, 
     type RiotLowTierEntry,
-} from './tier_based_players_collector';
+} from './playerCollectorService';
 
-import { MATCHES_PER_PLAYER } from '../../utils/constant';
+import { MATCHES_PER_PLAYER } from '../utils/constant';
 
 export function randomPlayersBasedOnMatchGoal<T extends RiotHighTierEntry | RiotLowTierEntry>(
     players: T[], 

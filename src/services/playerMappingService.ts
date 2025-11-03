@@ -3,7 +3,7 @@ import { z } from 'zod';
 import {
     type RiotHighTierEntry, 
     type RiotLowTierEntry,
-} from './tier_based_players_collector';
+} from './playerCollectorService';
 
 // --- DB SCHEMA ---
 // For database insertion: Map camelCase to snake_case

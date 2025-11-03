@@ -1,5 +1,5 @@
 import axios, { AxiosInstance } from 'axios';
-import { RiotLeagueRegion, RiotMatchRegion, RiotAccountRegion } from '../utils/constant';
+import { RiotLeagueRegion, RiotMatchRegion, RiotAccountRegion } from './constant';
 import * as dotenv from 'dotenv';
 
 dotenv.config();
