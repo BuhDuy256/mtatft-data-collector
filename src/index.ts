@@ -51,28 +51,90 @@ const log_stream = fs.createWriteStream(log_file, { flags: 'a' });
     };
 });
 
-// --- CLI ARGUMENTS PARSING --- 
+// --- CLI ARGUMENTS PARSING ---
+/**
+ * CLI Usage: npm start <TIERS...> <MATCH_GOAL> <ENRICH_ACCOUNT> <ENRICH_LEAGUE>
+ * 
+ * Examples:
+ *   npm start challenger 1000 on on
+ *   npm start challenger master diamond 500 on off
+ *   npm start all 100 on off
+ * 
+ * Arguments:
+ *   TIERS: One or more tier names (challenger, master, diamond...) or "all" for all tiers
+ *   MATCH_GOAL: Number of matches to collect per tier
+ *   ENRICH_ACCOUNT: "on" or "off" - Stage 4 (fetch gameName, tagLine)
+ *   ENRICH_LEAGUE: "on" or "off" - Stage 5 (fetch tier, rank, LP, W/L)
+ */
 const args = process.argv.slice(2);
-const tier_arg = args[0];
-const match_goal_arg = args[1];
 
-const parsed_tier = TierSchema.safeParse(tier_arg);
-
-if (!parsed_tier.success) {
-    const all_tiers = [...HIGH_TIERS, ...LOW_TIERS].join(', ');
-    throw new Error(
-        `(ERROR) Invalid tier: "${tier_arg}". Must be one of: ${all_tiers}`
-    );
+if (args.length < 4) {
+    console.error('(ERROR) Invalid arguments.');
+    console.error('Usage: npm start <TIERS...> <MATCH_GOAL> <ENRICH_ACCOUNT> <ENRICH_LEAGUE>');
+    console.error('');
+    console.error('Examples:');
+    console.error('  npm start challenger 1000 on on');
+    console.error('  npm start challenger master 500 on off');
+    console.error('  npm start all 100 on off');
+    console.error('');
+    console.error('Arguments:');
+    console.error('  TIERS: One or more tier names or "all"');
+    console.error('  MATCH_GOAL: Number of matches per tier');
+    console.error('  ENRICH_ACCOUNT: "on" or "off" (Stage 4)');
+    console.error('  ENRICH_LEAGUE: "on" or "off" (Stage 5)');
+    process.exit(1);
 }
 
-const tier: Tier = parsed_tier.data;
+// Parse tiers (all args except last 3 are tiers)
+const tier_args = args.slice(0, -3);
+const match_goal_arg = args[args.length - 3];
+const enrich_account_arg = args[args.length - 2].toLowerCase();
+const enrich_league_arg = args[args.length - 1].toLowerCase();
+
+// Parse match goal
 const match_goal = parseInt(match_goal_arg || '');
-
-if (isNaN(match_goal)) {
-    throw new Error(
-        `(ERROR) Match goal argument is required and must be a number. Usage: npm start <TIER> <MATCH_GOAL>`
-    );
+if (isNaN(match_goal) || match_goal <= 0) {
+    throw new Error(`(ERROR) Match goal must be a positive number. Got: "${match_goal_arg}"`);
 }
+
+// Parse enrich flags
+const enrich_account = enrich_account_arg === 'on';
+const enrich_league = enrich_league_arg === 'on';
+
+if (!['on', 'off'].includes(enrich_account_arg)) {
+    throw new Error(`(ERROR) ENRICH_ACCOUNT must be "on" or "off". Got: "${enrich_account_arg}"`);
+}
+if (!['on', 'off'].includes(enrich_league_arg)) {
+    throw new Error(`(ERROR) ENRICH_LEAGUE must be "on" or "off". Got: "${enrich_league_arg}"`);
+}
+
+// Parse tiers
+let tiers: Tier[] = [];
+
+if (tier_args.length === 1 && tier_args[0].toLowerCase() === 'all') {
+    // Use all tiers
+    tiers = [...HIGH_TIERS, ...LOW_TIERS] as Tier[];
+    console.log(`(INFO) Using ALL tiers: ${tiers.join(', ')}`);
+} else {
+    // Parse individual tiers
+    for (const tier_arg of tier_args) {
+        const parsed_tier = TierSchema.safeParse(tier_arg);
+        if (!parsed_tier.success) {
+            const all_tiers = [...HIGH_TIERS, ...LOW_TIERS].join(', ');
+            throw new Error(
+                `(ERROR) Invalid tier: "${tier_arg}". Must be one of: ${all_tiers}, or "all"`
+            );
+        }
+        tiers.push(parsed_tier.data);
+    }
+}
+
+console.log(`(INFO) Configuration:`);
+console.log(`  - Tiers: ${tiers.join(', ')}`);
+console.log(`  - Matches per tier: ${match_goal}`);
+console.log(`  - Total matches goal: ${match_goal * tiers.length}`);
+console.log(`  - Enrich account (Stage 4): ${enrich_account ? 'ON' : 'OFF'}`);
+console.log(`  - Enrich league (Stage 5): ${enrich_league ? 'ON' : 'OFF'}`);
 
 /**
  * Collect tier-based seed players and insert into database
@@ -253,48 +315,98 @@ async function cleanUpOrphanedPlayers(): Promise<void> {
 
 /**
  * Main pipeline orchestrator
- * Executes 5-stage data collection pipeline:
- * 1. Collect seed players from specified tier
+ * Executes data collection pipeline for multiple tiers:
+ * 1. Collect seed players from each specified tier
  * 2. Collect matches from those players (with streaming saves)
  * 3. Clean up orphaned players (no matches)
- * 4. Enrich player account data (gameName, tagLine)
- * 5. Enrich player league data (tier, rank, LP, W/L)
+ * 4. [Optional] Enrich player account data (gameName, tagLine)
+ * 5. [Optional] Enrich player league data (tier, rank, LP, W/L)
  */
 async function runPipeline() {
     try {
-        console.log(`(INFO) Starting data collection for tier: ${tier}, match goal: ${match_goal}`);
+        console.log(`(INFO) ========================================`);
+        console.log(`(INFO) Starting Multi-Tier Data Collection`);
+        console.log(`(INFO) ========================================`);
+        console.log(`(INFO) Total tiers: ${tiers.length}`);
+        console.log(`(INFO) Matches per tier: ${match_goal}`);
+        console.log(`(INFO) Total matches goal: ${match_goal * tiers.length}`);
+        console.log(`(INFO) ========================================`);
         
-        // --- STAGE 1: COLLECT TIER-BASED SEED PLAYERS ---
-        const puuid_seed_list = await collectTierBasedPlayers(tier, match_goal, [2, 3], [1, 2]);
+        const all_puuid_seeds = new Set<string>();
         
-        if (puuid_seed_list.size === 0) {
-            console.log("(WARNING) No seed players found. Stopping.");
-            return;
+        // --- STAGE 1 & 2: COLLECT PLAYERS AND MATCHES FOR EACH TIER ---
+        for (let i = 0; i < tiers.length; i++) {
+            const tier = tiers[i];
+            console.log(`\n(INFO) ========================================`);
+            console.log(`(INFO) Processing Tier ${i + 1}/${tiers.length}: ${tier.toUpperCase()}`);
+            console.log(`(INFO) ========================================`);
+            
+            // Stage 1: Collect seed players for this tier
+            const puuid_seed_list = await collectTierBasedPlayers(tier, match_goal, [2, 3], [1, 2]);
+            
+            if (puuid_seed_list.size === 0) {
+                console.log(`(WARNING) No seed players found for ${tier}. Skipping to next tier.`);
+                continue;
+            }
+            
+            // Accumulate all seed PUUIDs
+            puuid_seed_list.forEach(puuid => all_puuid_seeds.add(puuid));
+            
+            // Stage 2: Collect matches from players
+            await collectMatchesFromPlayers(puuid_seed_list, RIOT_MATCH_REGION);
         }
         
-        // --- STAGE 2: COLLECT MATCHES FROM PLAYERS ---
-        await collectMatchesFromPlayers(puuid_seed_list, RIOT_MATCH_REGION);
+        console.log(`\n(INFO) ========================================`);
+        console.log(`(INFO) All Tiers Processed`);
+        console.log(`(INFO) Total unique seed players: ${all_puuid_seeds.size}`);
+        console.log(`(INFO) ========================================`);
         
         // --- STAGE 3: DELETE ORPHANED PLAYERS ---
+        console.log(`\n(INFO) ========================================`);
+        console.log(`(INFO) Stage 3: Cleanup`);
+        console.log(`(INFO) ========================================`);
         await cleanUpOrphanedPlayers();
         
-        // --- STAGE 4: ENRICH PLAYER ACCOUNT DATA ---
-        await enrichPlayerAccounts();
+        // --- STAGE 4: ENRICH PLAYER ACCOUNT DATA (OPTIONAL) ---
+        if (enrich_account) {
+            console.log(`\n(INFO) ========================================`);
+            console.log(`(INFO) Stage 4: Account Enrichment (ENABLED)`);
+            console.log(`(INFO) ========================================`);
+            await enrichPlayerAccounts();
+        } else {
+            console.log(`\n(INFO) Stage 4: Account Enrichment (SKIPPED - disabled via CLI)`);
+        }
         
-        // --- STAGE 5: ENRICH PLAYER LEAGUE DATA ---
-        await enrichPlayerLeagues();
+        // --- STAGE 5: ENRICH PLAYER LEAGUE DATA (OPTIONAL) ---
+        if (enrich_league) {
+            console.log(`\n(INFO) ========================================`);
+            console.log(`(INFO) Stage 5: League Enrichment (ENABLED)`);
+            console.log(`(INFO) ========================================`);
+            await enrichPlayerLeagues();
+        } else {
+            console.log(`\n(INFO) Stage 5: League Enrichment (SKIPPED - disabled via CLI)`);
+        }
         
-        console.log(`(OK) Data collection complete!`);
+        console.log(`\n(INFO) ========================================`);
+        console.log(`(OK) ✅ Data Collection Pipeline Complete!`);
+        console.log(`(INFO) ========================================`);
+        console.log(`(INFO) Summary:`);
+        console.log(`  - Tiers processed: ${tiers.join(', ')}`);
+        console.log(`  - Matches per tier: ${match_goal}`);
+        console.log(`  - Total unique players: ${all_puuid_seeds.size}`);
+        console.log(`  - Account enrichment: ${enrich_account ? 'YES' : 'NO'}`);
+        console.log(`  - League enrichment: ${enrich_league ? 'YES' : 'NO'}`);
+        console.log(`(INFO) ========================================`);
+        
     } catch (error) {
-        console.error(`(ERROR) Fatal error in pipeline:`, error);
+        console.error(`\n(ERROR) ========================================`);
+        console.error(`(ERROR) Fatal error in pipeline:`);
+        console.error(`(ERROR) ========================================`);
+        console.error(error);
+        console.error(`(ERROR) ========================================`);
         process.exit(1);
     }
 }
 
 // Execute main pipeline
-runPipeline(); 
-
-
-
-
-
+runPipeline();
