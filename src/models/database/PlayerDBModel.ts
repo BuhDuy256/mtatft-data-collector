@@ -17,7 +17,8 @@ export const PlayerDBSchema = z.object({
     veteran: z.boolean(),
     inactive: z.boolean(),
     fresh_blood: z.boolean(),
-    hot_streak: z.boolean()
+    hot_streak: z.boolean(),
+    updated_at: z.string().optional() // Timestamp when rank was last updated
 });
 
 export type PlayerDB = z.infer<typeof PlayerDBSchema>;

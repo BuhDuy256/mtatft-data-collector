@@ -12,7 +12,7 @@ export async function upsertMatch(match_data: MatchDB): Promise<void> {
     const validated_match = MatchDBSchema.parse(match_data);
     
     const { error } = await supabase
-        .from('matches')
+        .from('raw_matches')
         .upsert(validated_match, { onConflict: 'match_id' });
     
     if (error) {
@@ -32,7 +32,7 @@ export async function upsertMatches(matches: MatchDB[]): Promise<void> {
     const validated_matches = matches.map(m => MatchDBSchema.parse(m));
     
     const { error } = await supabase
-        .from('matches')
+        .from('raw_matches')
         .upsert(validated_matches, { onConflict: 'match_id' });
     
     if (error) {
@@ -46,11 +46,11 @@ export async function upsertMatches(matches: MatchDB[]): Promise<void> {
  * Get total count of matches currently in database
  * Used for progress tracking and statistics.
  * 
- * @returns Number of matches in matches table
+ * @returns Number of matches in raw_matches table
  */
 export async function getMatchCount(): Promise<number> {
     const { count, error } = await supabase
-        .from('matches')
+        .from('raw_matches')
         .select('match_id', { count: 'exact', head: true });
     
     if (error) {

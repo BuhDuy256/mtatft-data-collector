@@ -204,51 +204,19 @@ npm start diamond 100 off off
 
 4. **Set up database schema**
    
-   Run the following SQL in your Supabase SQL Editor:
-
-   ```sql
-   -- Players table
-   CREATE TABLE players (
-       puuid TEXT PRIMARY KEY,
-       game_name TEXT,
-       tag_line TEXT,
-       tier TEXT NOT NULL,
-       rank TEXT NOT NULL,
-       league_points INTEGER NOT NULL DEFAULT 0,
-       wins INTEGER NOT NULL DEFAULT 0,
-       losses INTEGER NOT NULL DEFAULT 0,
-       veteran BOOLEAN NOT NULL DEFAULT FALSE,
-       inactive BOOLEAN NOT NULL DEFAULT FALSE,
-       fresh_blood BOOLEAN NOT NULL DEFAULT FALSE,
-       hot_streak BOOLEAN NOT NULL DEFAULT FALSE,
-       created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-       updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-   );
-
-   -- Matches table (JSONB storage)
-   CREATE TABLE matches (
-       match_id TEXT PRIMARY KEY,
-       data JSONB NOT NULL,
-       is_processed BOOLEAN NOT NULL DEFAULT FALSE,
-       region TEXT NOT NULL,
-       created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-   );
-
-   -- Junction table for players-matches relationship
-   CREATE TABLE players_matches_link (
-       puuid TEXT NOT NULL REFERENCES players(puuid) ON DELETE CASCADE,
-       match_id TEXT NOT NULL REFERENCES matches(match_id) ON DELETE CASCADE,
-       created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-       PRIMARY KEY (puuid, match_id)
-   );
-
-   -- Indexes for performance
-   CREATE INDEX idx_players_tier ON players(tier);
-   CREATE INDEX idx_players_game_name ON players(game_name);
-   CREATE INDEX idx_matches_region ON matches(region);
-   CREATE INDEX idx_players_matches_link_puuid ON players_matches_link(puuid);
-   CREATE INDEX idx_players_matches_link_match_id ON players_matches_link(match_id);
-   ```
+   Run the SQL from `docs/db_init.sql` in your Supabase SQL Editor.
+   
+   The schema includes:
+   - **raw_matches**: Raw JSON data from Riot API (RAW DATA LAYER)
+   - **players**: Player identity and current rank (MASTER DATA)
+   - **matches**: Normalized match information (ANALYTICAL DATA)
+   - **participants**: Player performance per match (ANALYTICAL DATA)
+   - **match_units**: Champion compositions (ANALYTICAL DATA)
+   - **match_unit_items**: Item details (ANALYTICAL DATA)
+   - **match_traits**: Activated synergies (ANALYTICAL DATA)
+   
+   **Note**: Currently only `raw_matches` and `players` tables are actively used by the collector.
+   Other tables are prepared for future Edge Function processing.
 
 ## ⚙ Configuration
 
@@ -508,14 +476,30 @@ All logs are written to `logs/index.log` with timestamps:
 
 ## 🗄 Database Schema
 
-### `players` Table
+The database uses a **layered architecture** designed for raw data storage and future analytical processing.
+
+### Currently Used Tables
+
+#### `raw_matches` Table (RAW DATA LAYER)
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `match_id` | TEXT (PK) | Match unique identifier |
+| `data` | JSONB | Full match JSON from Riot API |
+| `region` | TEXT | Server region (e.g., 'VN2', 'NA1') |
+| `is_processed` | BOOLEAN | Flag for Edge Function processing |
+| `created_at` | TIMESTAMPTZ | Auto-generated timestamp |
+
+**Purpose**: Store complete raw JSON to avoid data loss during normalization.
+
+#### `players` Table (MASTER DATA)
 
 | Column | Type | Description |
 |--------|------|-------------|
 | `puuid` | TEXT (PK) | Player unique identifier |
 | `game_name` | TEXT | Riot ID game name |
 | `tag_line` | TEXT | Riot ID tag line |
-| `tier` | TEXT | Current tier (CHALLENGER, DIAMOND, etc.) |
+| `tier` | TEXT | Current tier snapshot (CHALLENGER, DIAMOND, etc.) |
 | `rank` | TEXT | Current division (I, II, III, IV) |
 | `league_points` | INTEGER | League points (LP) |
 | `wins` | INTEGER | Ranked wins |
@@ -524,22 +508,21 @@ All logs are written to `logs/index.log` with timestamps:
 | `inactive` | BOOLEAN | Inactive status flag |
 | `fresh_blood` | BOOLEAN | Fresh blood status flag |
 | `hot_streak` | BOOLEAN | Hot streak status flag |
+| `updated_at` | TIMESTAMPTZ | Last rank update timestamp |
 
-### `matches` Table
+**Purpose**: Store player identity and current rank information.
 
-| Column | Type | Description |
-|--------|------|-------------|
-| `match_id` | TEXT (PK) | Match unique identifier |
-| `data` | JSONB | Full match JSON from API |
-| `is_processed` | BOOLEAN | Processing status flag |
-| `region` | TEXT | Server region (e.g., 'sea') |
+### Future Tables (Prepared for Edge Functions)
 
-### `players_matches_link` Table
+The following tables are defined in `docs/db_init.sql` but not yet populated by the collector:
 
-| Column | Type | Description |
-|--------|------|-------------|
-| `puuid` | TEXT (FK) | Player identifier |
-| `match_id` | TEXT (FK) | Match identifier |
+- **`matches`**: Normalized match information (parsed from `raw_matches`)
+- **`participants`**: Player performance per match (placement, level, damage, etc.)
+- **`match_units`**: Champion compositions per participant
+- **`match_unit_items`**: Item details for each champion
+- **`match_traits`**: Activated synergies (traits) per participant
+
+**See** `docs/db_init.sql` for complete schema definitions.
 
 ## 📝 Code Conventions
 

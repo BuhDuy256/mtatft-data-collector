@@ -92,7 +92,8 @@ export async function updatePlayerAccount(
         .from('players')
         .update({ 
             game_name: game_name, 
-            tag_line: tag_line 
+            tag_line: tag_line,
+            updated_at: new Date().toISOString()
         })
         .eq('puuid', puuid);
     
@@ -200,7 +201,8 @@ export async function updatePlayerLeague(
             veteran: league_data.veteran,
             inactive: league_data.inactive,
             fresh_blood: league_data.freshBlood,
-            hot_streak: league_data.hotStreak
+            hot_streak: league_data.hotStreak,
+            updated_at: new Date().toISOString()
         })
         .eq('puuid', puuid);
     
