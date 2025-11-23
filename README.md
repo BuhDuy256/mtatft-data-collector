@@ -315,12 +315,14 @@ The pipeline executes in the following order:
    - Only players from League API are saved to database
 
 2. **Stage 3** (Optional - controlled by `ENRICH_ACCOUNT`):
-   - Fetches Riot ID (gameName#tagLine) for all players
+   - Fetches Riot ID (gameName#tagLine) ONLY for players missing account data
+   - Skips players who already have game_name and tag_line
    - Updates player records with account information
    - Handles 404 errors gracefully (account not found)
 
 3. **Stage 4** (Optional - controlled by `ENRICH_LEAGUE`):
-   - Fetches current ranked statistics for all players
+   - Fetches current ranked statistics ONLY for players missing league data
+   - Skips players who already have updated_at timestamp
    - Updates: tier, rank, league points, wins, losses, status flags
    - Filters for RANKED_TFT queue only
 
@@ -421,49 +423,66 @@ All logs are written to `logs/index.log` with timestamps:
 
 **Controlled By**: `ENRICH_ACCOUNT` parameter (`on`/`off`)
 
-**Purpose**: Fetch and update player account information
+**Purpose**: Fetch and update player account information for players missing data
 
 **Process** (when enabled):
-1. Get all player PUUIDs from database
-2. Stream fetch account data from Riot Account API:
+1. Query players WHERE `game_name IS NULL` OR `tag_line IS NULL`
+2. Skip if all players already have account info
+3. Stream fetch account data from Riot Account API:
    - Fetch `gameName` and `tagLine`
    - Update player record immediately
-3. Handle 404 errors gracefully (account not found)
+4. Handle 404 errors gracefully (account not found)
+
+**Smart Incremental Updates**:
+- Only fetches data for players missing account info
+- Safe to run multiple times - won't re-fetch existing data
+- Ideal for incremental data collection across multiple runs
 
 **When to Enable**:
 - ✅ Need player display names for analysis
 - ✅ Want to track specific players by name
 - ✅ Building leaderboards or player profiles
+- ✅ Filling in gaps from previous runs
 
 **When to Disable**:
 - ❌ Only need match data, not player identities
-- ❌ Want faster collection (saves ~1.3s per player)
+- ❌ All players already have account info
+- ❌ Want faster collection
 - ❌ Reducing API call volume
 
-**Output**: Players updated with Riot ID (gameName#tagLine)
+**Output**: Only missing players updated with Riot ID (gameName#tagLine)
 
 ### Stage 4: League Enrichment (Optional)
 
 **Controlled By**: `ENRICH_LEAGUE` parameter (`on`/`off`)
 
-**Purpose**: Fetch and update current league statistics
+**Purpose**: Fetch and update current league statistics for players missing data
 
 **Process** (when enabled):
-1. Get all player PUUIDs from database
-2. Stream fetch league data from Riot League API:
+1. Query players WHERE `updated_at IS NULL` (never enriched)
+2. Skip if all players already have league info
+3. Stream fetch league data from Riot League API:
    - Filter for `RANKED_TFT` queue only
    - Extract: tier, rank, LP, wins, losses, flags
-   - Update player record immediately
-3. Skip players without ranked data
+   - Update player record immediately with timestamp
+4. Skip players without ranked data
+
+**Smart Incremental Updates**:
+- Only fetches data for players never enriched (updated_at IS NULL)
+- Safe to run multiple times - won't re-fetch existing data
+- Ideal for incremental data collection across multiple runs
+- Players from Stage 1 get initial tier, this stage enriches with full details
 
 **When to Enable**:
-- ✅ Need current rank information for analysis
+- ✅ Need detailed rank information for analysis
 - ✅ Building rank distribution statistics
 - ✅ Filtering players by skill level
+- ✅ Filling in gaps from previous runs
 
 **When to Disable**:
 - ❌ Only analyzing historical match data
 - ❌ Player ranks from Stage 1 are sufficient
+- ❌ All players already have league info
 - ❌ Want much faster collection (most expensive stage)
 - ❌ Processing old matches (ranks change over time)
 
@@ -471,8 +490,9 @@ All logs are written to `logs/index.log` with timestamps:
 - League data is **current at time of fetch**, not historical
 - For historical analysis, use tier info from match JSON instead
 - This stage significantly increases runtime and API usage
+- Players enriched once won't be re-fetched in future runs
 
-**Output**: Players updated with current ranked stats
+**Output**: Only missing players updated with current ranked stats
 
 ## 🗄 Database Schema
 

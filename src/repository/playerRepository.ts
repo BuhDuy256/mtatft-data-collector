@@ -7,6 +7,58 @@ import type { PlayerDB } from '../models/database/PlayerDBModel';
  */
 
 /**
+ * Helper function to fetch all records with pagination to bypass 1000 row limit
+ * @param query - Supabase query builder
+ * @returns All records from the query
+ */
+async function fetchAllRecords<T>(
+    tableName: string,
+    selectFields: string,
+    filterFn?: (query: any) => any
+): Promise<T[]> {
+    const PAGE_SIZE = 1000;
+    let allRecords: T[] = [];
+    let page = 0;
+    let hasMore = true;
+
+    while (hasMore) {
+        const start = page * PAGE_SIZE;
+        const end = start + PAGE_SIZE - 1;
+
+        let query = supabase
+            .from(tableName)
+            .select(selectFields, { count: 'exact' })
+            .range(start, end);
+
+        // Apply filters if provided
+        if (filterFn) {
+            query = filterFn(query);
+        }
+
+        const { data, error, count } = await query;
+
+        if (error) {
+            throw error;
+        }
+
+        if (data && data.length > 0) {
+            allRecords = allRecords.concat(data as T[]);
+        }
+
+        // Check if there are more records
+        hasMore = data && data.length === PAGE_SIZE;
+        page++;
+
+        // Safety check to prevent infinite loops
+        if (count !== null && allRecords.length >= count) {
+            hasMore = false;
+        }
+    }
+
+    return allRecords;
+}
+
+/**
  * Upsert players into database
  * Uses ON CONFLICT to update existing players or insert new ones.
  * 
@@ -133,40 +185,67 @@ export async function batchUpdatePlayerAccounts(
 /**
  * Get players missing account information
  * Returns players where game_name or tag_line is NULL.
+ * Uses pagination to fetch ALL records (no 1000 limit).
  * 
  * @returns Array of PUUIDs for players without complete account data
  */
 export async function getPlayersMissingAccountInfo(): Promise<string[]> {
-    const { data, error } = await supabase
-        .from('players')
-        .select('puuid')
-        .or('game_name.is.null,tag_line.is.null');
-    
-    if (error) {
-        console.error("(ERROR) Error fetching players missing account info:", error.message);
+    try {
+        const records = await fetchAllRecords<{ puuid: string }>(
+            'players',
+            'puuid',
+            (query) => query.or('game_name.is.null,tag_line.is.null')
+        );
+        
+        return records.map(row => row.puuid);
+    } catch (error) {
+        console.error("(ERROR) Error fetching players missing account info:", error);
         throw error;
     }
-    
-    return data?.map(row => row.puuid) || [];
+}
+
+/**
+ * Get players missing league information
+ * Returns players where updated_at is NULL (never updated after initial insert).
+ * These are players that were inserted with default tier from League API but never enriched.
+ * Uses pagination to fetch ALL records (no 1000 limit).
+ * 
+ * @returns Array of PUUIDs for players without enriched league data
+ */
+export async function getPlayersMissingLeagueInfo(): Promise<string[]> {
+    try {
+        const records = await fetchAllRecords<{ puuid: string }>(
+            'players',
+            'puuid',
+            (query) => query.is('updated_at', null)
+        );
+        
+        return records.map(row => row.puuid);
+    } catch (error) {
+        console.error("(ERROR) Error fetching players missing league info:", error);
+        throw error;
+    }
 }
 
 /**
  * Get all player PUUIDs from database
  * Fetches complete list of players for batch operations.
+ * Uses pagination to fetch ALL records (no 1000 limit).
  * 
  * @returns Array of all PUUIDs in players table
  */
 export async function getAllPlayerPuuids(): Promise<string[]> {
-    const { data, error } = await supabase
-        .from('players')
-        .select('puuid');
-    
-    if (error) {
-        console.error("(ERROR) Error fetching all player PUUIDs:", error.message);
+    try {
+        const records = await fetchAllRecords<{ puuid: string }>(
+            'players',
+            'puuid'
+        );
+        
+        return records.map(row => row.puuid);
+    } catch (error) {
+        console.error("(ERROR) Error fetching all player PUUIDs:", error);
         throw error;
     }
-    
-    return data?.map(row => row.puuid) || [];
 }
 
 /**

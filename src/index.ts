@@ -24,7 +24,7 @@ import { fetchAndSavePlayerLeagues } from './services/leagueCollectorService';
 import { mapRiotPlayersToDatabase } from './mappers/PlayerMapper';
 
 // Repository
-import { upsertPlayers, updatePlayerAccount, updatePlayerLeague, getAllPlayerPuuids } from './repository/playerRepository';
+import { upsertPlayers, updatePlayerAccount, updatePlayerLeague, getAllPlayerPuuids, getPlayersMissingAccountInfo, getPlayersMissingLeagueInfo } from './repository/playerRepository';
 
 // Models
 import type { MatchDB } from './models/database/MatchDBMode';
@@ -216,52 +216,52 @@ async function collectMatchesFromPlayers(
 
 /**
  * Stage 3: Enrich player account data using stream processing
- * Fetches Riot account info (gameName, tagLine) for all players and immediately updates database.
+ * Fetches Riot account info (gameName, tagLine) ONLY for players missing account data.
  * Uses streaming approach - fetch one, save one.
  */
 async function enrichPlayerAccounts(): Promise<void> {
-    console.log(`(INFO) Stage 4: Enriching player account data...`);
+    console.log(`(INFO) Stage 3: Enriching player account data...`);
     
-    // Fetch all player PUUIDs from database
-    const all_puuids = await getAllPlayerPuuids();
+    // Fetch only players missing account info (game_name or tag_line is NULL)
+    const missing_puuids = await getPlayersMissingAccountInfo();
     
-    if (all_puuids.length === 0) {
-        console.log("(WARNING) No players found in database. Skipping Stage 4.");
+    if (missing_puuids.length === 0) {
+        console.log("(INFO) All players already have account info. Skipping Stage 3.");
         return;
     }
     
-    console.log(`(INFO) Updating account info for ${all_puuids.length} players...`);
+    console.log(`(INFO) Found ${missing_puuids.length} players missing account info. Updating...`);
     
     // Stream fetch and immediately save each account
-    const updated_count = await fetchAndSavePlayerAccounts(all_puuids, async (account) => {
+    const updated_count = await fetchAndSavePlayerAccounts(missing_puuids, async (account) => {
         await updatePlayerAccount(account.puuid, account.gameName, account.tagLine);
     });
     
     console.log(`(OK) Stage 3 Complete!`);
-    console.log(`    - Total players: ${all_puuids.length}`);
+    console.log(`    - Players needing update: ${missing_puuids.length}`);
     console.log(`    - Successfully updated: ${updated_count}`);
 }
 
 /**
- * Stage 4: Enrich player league data using stream processingrocessing
- * Fetches RANKED_TFT league entries (tier, rank, LP, W/L) for all players and immediately updates database.
+ * Stage 4: Enrich player league data using stream processing
+ * Fetches RANKED_TFT league entries (tier, rank, LP, W/L) ONLY for players missing league data.
  * Filters to only RANKED_TFT queue type, ignoring other modes like RANKED_TFT_TURBO.
  */
 async function enrichPlayerLeagues(): Promise<void> {
     console.log(`(INFO) Stage 4: Enriching player league data (RANKED_TFT only)...`);
     
-    // Fetch all player PUUIDs from database
-    const all_puuids = await getAllPlayerPuuids();
+    // Fetch only players missing league info (updated_at is NULL)
+    const missing_puuids = await getPlayersMissingLeagueInfo();
     
-    if (all_puuids.length === 0) {
-        console.log("(WARNING) No players found in database. Skipping Stage 5.");
+    if (missing_puuids.length === 0) {
+        console.log("(INFO) All players already have league info. Skipping Stage 4.");
         return;
     }
     
-    console.log(`(INFO) Updating league info for ${all_puuids.length} players...`);
+    console.log(`(INFO) Found ${missing_puuids.length} players missing league info. Updating...`);
     
     // Stream fetch and immediately save each league entry
-    const updated_count = await fetchAndSavePlayerLeagues(all_puuids, async (league) => {
+    const updated_count = await fetchAndSavePlayerLeagues(missing_puuids, async (league) => {
         await updatePlayerLeague(league.puuid, {
             tier: league.tier,
             rank: league.rank,
@@ -276,7 +276,7 @@ async function enrichPlayerLeagues(): Promise<void> {
     });
     
     console.log(`(OK) Stage 4 Complete!`);
-    console.log(`    - Total players: ${all_puuids.length}`);
+    console.log(`    - Players needing update: ${missing_puuids.length}`);
     console.log(`    - Successfully updated: ${updated_count}`);
 }
 
