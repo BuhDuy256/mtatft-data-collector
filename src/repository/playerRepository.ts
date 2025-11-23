@@ -76,29 +76,6 @@ export async function deletePlayersByPuuids(puuids: string[]): Promise<number> {
 }
 
 /**
- * Delete players that don't have any matches
- * Uses SQL stored procedure (delete_orphaned_players) for optimal performance.
- * Stored procedure deletes players whose PUUID is not in players_matches_link table.
- * 
- * @returns Number of deleted players
- */
-export async function deletePlayersWithoutMatches(): Promise<number> {
-    console.log("(INFO) Deleting players without matches...");
-    
-    const { data, error } = await supabase.rpc('delete_orphaned_players');
-    
-    if (error) {
-        console.error("(ERROR) Error deleting orphaned players:", error.message, error.details);
-        throw error;
-    }
-    
-    const deleted_count = typeof data === 'number' ? data : 0;
-    console.log(`(OK) Deleted ${deleted_count} orphaned players.`);
-    
-    return deleted_count;
-}
-
-/**
  * Update player account information (game_name, tag_line)
  * Updates only the account fields, leaving league stats unchanged.
  * 

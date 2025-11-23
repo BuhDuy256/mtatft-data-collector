@@ -24,11 +24,10 @@ import { fetchAndSavePlayerLeagues } from './services/leagueCollectorService';
 import { mapRiotPlayersToDatabase } from './mappers/PlayerMapper';
 
 // Repository
-import { upsertPlayers, updatePlayerAccount, updatePlayerLeague, getAllPlayerPuuids, deletePlayersWithoutMatches } from './repository/playerRepository';
-import { upsertPlayerStubs, upsertPlayerMatchLinks } from './repository/matchRepository';
+import { upsertPlayers, updatePlayerAccount, updatePlayerLeague, getAllPlayerPuuids } from './repository/playerRepository';
 
 // Models
-import type { MatchDB, PlayerMatchLinkDB } from './models/database/MatchDBMode';
+import type { MatchDB } from './models/database/MatchDBMode';
 
 // Utils
 import { RIOT_MATCH_REGION } from './utils/api';
@@ -63,8 +62,8 @@ const log_stream = fs.createWriteStream(log_file, { flags: 'a' });
  * Arguments:
  *   TIERS: One or more tier names (challenger, master, diamond...) or "all" for all tiers
  *   MATCH_GOAL: Number of matches to collect per tier
- *   ENRICH_ACCOUNT: "on" or "off" - Stage 4 (fetch gameName, tagLine)
- *   ENRICH_LEAGUE: "on" or "off" - Stage 5 (fetch tier, rank, LP, W/L)
+ *   ENRICH_ACCOUNT: "on" or "off" - Stage 3 (fetch gameName, tagLine)
+ *   ENRICH_LEAGUE: "on" or "off" - Stage 4 (fetch tier, rank, LP, W/L)
  */
 const args = process.argv.slice(2);
 
@@ -80,8 +79,8 @@ if (args.length < 4) {
     console.error('Arguments:');
     console.error('  TIERS: One or more tier names or "all"');
     console.error('  MATCH_GOAL: Number of matches per tier');
-    console.error('  ENRICH_ACCOUNT: "on" or "off" (Stage 4)');
-    console.error('  ENRICH_LEAGUE: "on" or "off" (Stage 5)');
+    console.error('  ENRICH_ACCOUNT: "on" or "off" (Stage 3)');
+    console.error('  ENRICH_LEAGUE: "on" or "off" (Stage 4)');
     process.exit(1);
 }
 
@@ -133,8 +132,8 @@ console.log(`(INFO) Configuration:`);
 console.log(`  - Tiers: ${tiers.join(', ')}`);
 console.log(`  - Matches per tier: ${match_goal}`);
 console.log(`  - Total matches goal: ${match_goal * tiers.length}`);
-console.log(`  - Enrich account (Stage 4): ${enrich_account ? 'ON' : 'OFF'}`);
-console.log(`  - Enrich league (Stage 5): ${enrich_league ? 'ON' : 'OFF'}`);
+console.log(`  - Enrich account (Stage 3): ${enrich_account ? 'ON' : 'OFF'}`);
+console.log(`  - Enrich league (Stage 4): ${enrich_league ? 'ON' : 'OFF'}`);
 
 /**
  * Collect tier-based seed players and insert into database
@@ -174,7 +173,7 @@ async function collectTierBasedPlayers(
 /**
  * Collect matches from seed players using stream processing
  * Fetches match IDs from players, then streams match details with immediate database saves.
- * For each match: saves full JSONB data, extracts participants as player stubs, creates links.
+ * Only saves match data - does not create player stubs or links.
  * 
  * @param puuid_seed_list - Set of player PUUIDs to fetch matches from
  * @param region - Region identifier for match data (e.g., 'sea', 'na1')
@@ -194,8 +193,6 @@ async function collectMatchesFromPlayers(
     }
     
     let match_count = 0;
-    let total_players = new Set<string>();
-    let total_links = 0;
     
     // Step 2: Stream fetch and immediately save each match
     await fetchAndSaveMatchDetails(match_id_set, region, async (match_result: MatchDetailResult) => {
@@ -211,28 +208,14 @@ async function collectMatchesFromPlayers(
         
         const { upsertMatch } = await import('./repository/matchRepository');
         await upsertMatch(match_db);
-        
-        // Upsert player stubs (puuid only, other fields default)
-        await upsertPlayerStubs(match_result.playerPuuids);
-        match_result.playerPuuids.forEach(puuid => total_players.add(puuid));
-        
-        // Create player-match links
-        const links: PlayerMatchLinkDB[] = match_result.playerPuuids.map(puuid => ({
-            puuid,
-            match_id: match_result.matchId
-        }));
-        await upsertPlayerMatchLinks(links);
-        total_links += links.length;
     });
     
     console.log(`(OK) Stage 2 Complete!`);
     console.log(`    - Matches saved: ${match_count}`);
-    console.log(`    - Unique players found: ${total_players.size}`);
-    console.log(`    - Links created: ${total_links}`);
 }
 
 /**
- * Enrich player account data using stream processing
+ * Stage 3: Enrich player account data using stream processing
  * Fetches Riot account info (gameName, tagLine) for all players and immediately updates database.
  * Uses streaming approach - fetch one, save one.
  */
@@ -254,18 +237,18 @@ async function enrichPlayerAccounts(): Promise<void> {
         await updatePlayerAccount(account.puuid, account.gameName, account.tagLine);
     });
     
-    console.log(`(OK) Stage 4 Complete!`);
+    console.log(`(OK) Stage 3 Complete!`);
     console.log(`    - Total players: ${all_puuids.length}`);
     console.log(`    - Successfully updated: ${updated_count}`);
 }
 
 /**
- * Enrich player league data using stream processing
+ * Stage 4: Enrich player league data using stream processingrocessing
  * Fetches RANKED_TFT league entries (tier, rank, LP, W/L) for all players and immediately updates database.
  * Filters to only RANKED_TFT queue type, ignoring other modes like RANKED_TFT_TURBO.
  */
 async function enrichPlayerLeagues(): Promise<void> {
-    console.log(`(INFO) Stage 5: Enriching player league data (RANKED_TFT only)...`);
+    console.log(`(INFO) Stage 4: Enriching player league data (RANKED_TFT only)...`);
     
     // Fetch all player PUUIDs from database
     const all_puuids = await getAllPlayerPuuids();
@@ -292,35 +275,18 @@ async function enrichPlayerLeagues(): Promise<void> {
         });
     });
     
-    console.log(`(OK) Stage 5 Complete!`);
+    console.log(`(OK) Stage 4 Complete!`);
     console.log(`    - Total players: ${all_puuids.length}`);
     console.log(`    - Successfully updated: ${updated_count}`);
 }
 
 /**
- * Clean up orphaned players from database
- * Deletes players who don't have any associated matches in players_matches_link table.
- * Uses SQL stored procedure (delete_orphaned_players) for optimal performance.
- * 
- * @returns Number of players deleted
- */
-async function cleanUpOrphanedPlayers(): Promise<void> {
-    console.log(`(INFO) Stage 3: Cleaning up orphaned players...`);
-    
-    const deleted_count = await deletePlayersWithoutMatches();
-    
-    console.log(`(OK) Stage 3 Complete!`);
-    console.log(`    - Orphaned players deleted: ${deleted_count}`);
-}
-
-/**
  * Main pipeline orchestrator
  * Executes data collection pipeline for multiple tiers:
- * 1. Collect seed players from each specified tier
+ * 1. Collect seed players from each specified tier (from League API)
  * 2. Collect matches from those players (with streaming saves)
- * 3. Clean up orphaned players (no matches)
- * 4. [Optional] Enrich player account data (gameName, tagLine)
- * 5. [Optional] Enrich player league data (tier, rank, LP, W/L)
+ * 3. [Optional] Enrich player account data (gameName, tagLine)
+ * 4. [Optional] Enrich player league data (tier, rank, LP, W/L)
  */
 async function runPipeline() {
     try {
@@ -361,30 +327,24 @@ async function runPipeline() {
         console.log(`(INFO) Total unique seed players: ${all_puuid_seeds.size}`);
         console.log(`(INFO) ========================================`);
         
-        // --- STAGE 3: DELETE ORPHANED PLAYERS ---
-        console.log(`\n(INFO) ========================================`);
-        console.log(`(INFO) Stage 3: Cleanup`);
-        console.log(`(INFO) ========================================`);
-        await cleanUpOrphanedPlayers();
-        
-        // --- STAGE 4: ENRICH PLAYER ACCOUNT DATA (OPTIONAL) ---
+        // --- STAGE 3: ENRICH PLAYER ACCOUNT DATA (OPTIONAL) ---
         if (enrich_account) {
             console.log(`\n(INFO) ========================================`);
-            console.log(`(INFO) Stage 4: Account Enrichment (ENABLED)`);
+            console.log(`(INFO) Stage 3: Account Enrichment (ENABLED)`);
             console.log(`(INFO) ========================================`);
             await enrichPlayerAccounts();
         } else {
-            console.log(`\n(INFO) Stage 4: Account Enrichment (SKIPPED - disabled via CLI)`);
+            console.log(`\n(INFO) Stage 3: Account Enrichment (SKIPPED - disabled via CLI)`);
         }
         
-        // --- STAGE 5: ENRICH PLAYER LEAGUE DATA (OPTIONAL) ---
+        // --- STAGE 4: ENRICH PLAYER LEAGUE DATA (OPTIONAL) ---
         if (enrich_league) {
             console.log(`\n(INFO) ========================================`);
-            console.log(`(INFO) Stage 5: League Enrichment (ENABLED)`);
+            console.log(`(INFO) Stage 4: League Enrichment (ENABLED)`);
             console.log(`(INFO) ========================================`);
             await enrichPlayerLeagues();
         } else {
-            console.log(`\n(INFO) Stage 5: League Enrichment (SKIPPED - disabled via CLI)`);
+            console.log(`\n(INFO) Stage 4: League Enrichment (SKIPPED - disabled via CLI)`);
         }
         
         console.log(`\n(INFO) ========================================`);

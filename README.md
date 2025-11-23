@@ -28,11 +28,11 @@ A comprehensive data collection pipeline for Teamfight Tactics (TFT) that fetche
   - Matches collected **per tier** (configurable goal)
   - Example: `npm start challenger master diamond 500 on on` = 1500 matches
 
-- **5-Stage Configurable Pipeline**
-  - Stage 1-2: Collect seed players and matches (always runs)
-  - Stage 3: Clean up orphaned players (always runs)
-  - Stage 4: Enrich account info - **Optional** (`on`/`off` via CLI)
-  - Stage 5: Enrich league stats - **Optional** (`on`/`off` via CLI)
+- **4-Stage Configurable Pipeline**
+  - Stage 1: Collect seed players from League API (always runs)
+  - Stage 2: Collect matches from seed players (always runs)
+  - Stage 3: Enrich account info - **Optional** (`on`/`off` via CLI)
+  - Stage 4: Enrich league stats - **Optional** (`on`/`off` via CLI)
 
 - **Stream Processing Architecture**
   - Fetch one, save immediately pattern
@@ -52,11 +52,7 @@ A comprehensive data collection pipeline for Teamfight Tactics (TFT) that fetche
   - Flexible for future analysis needs
   - Efficient querying with PostgreSQL JSONB indexes
 
-- **Player Stub System**
-  - Automatic player discovery from matches
-  - Default values for unknown players
-  - Progressive enrichment with API data
-  - No duplicate players across tiers
+
 
 ## 🏗 Architecture
 
@@ -76,21 +72,15 @@ A comprehensive data collection pipeline for Teamfight Tactics (TFT) that fetche
 │  │ Stage 2: Match Collection    │   │
 │  │  - Stream Processing         │   │
 │  │  - JSONB Storage             │   │
-│  │  - Player Stub Creation      │   │
 │  └────────────┬─────────────────┘   │
-│               ▼                      │
-│  ┌──────────────────────────────┐   │
-│  │ Stage 3: Orphan Cleanup      │   │
-│  │  - SQL Stored Procedure      │   │
-│  └────────────┬─────────────────┘   │
-│               ▼                      │
-│  ┌──────────────────────────────┐   │
-│  │ Stage 4: Account Enrichment  │   │
+│               │                      │
+│  ┌────────────┴─────────────────┐   │
+│  │ Stage 3: Account Enrichment  │   │
 │  │  - gameName, tagLine         │   │
 │  └────────────┬─────────────────┘   │
-│               ▼                      │
-│  ┌──────────────────────────────┐   │
-│  │ Stage 5: League Enrichment   │   │
+│               │                      │
+│  ┌────────────┴─────────────────┐   │
+│  │ Stage 4: League Enrichment   │   │
 │  │  - Tier, Rank, LP, W/L       │   │
 │  └──────────────────────────────┘   │
 └─────────────┬───────────────────────┘
@@ -252,19 +242,6 @@ npm start diamond 100 off off
        PRIMARY KEY (puuid, match_id)
    );
 
-   -- Stored procedure for orphan cleanup
-   CREATE OR REPLACE FUNCTION delete_orphaned_players()
-   RETURNS INTEGER AS $$
-   DECLARE deleted_count INTEGER;
-   BEGIN
-       DELETE FROM players WHERE puuid NOT IN (
-           SELECT DISTINCT puuid FROM players_matches_link
-       );
-       GET DIAGNOSTICS deleted_count = ROW_COUNT;
-       RETURN deleted_count;
-   END;
-   $$ LANGUAGE plpgsql;
-
    -- Indexes for performance
    CREATE INDEX idx_players_tier ON players(tier);
    CREATE INDEX idx_players_game_name ON players(game_name);
@@ -364,21 +341,17 @@ npm start all 50 on on
 The pipeline executes in the following order:
 
 1. **Stage 1 & 2** (Always runs): 
-   - Fetches seed players from each specified tier
+   - Fetches seed players from each specified tier via League API
    - Collects matches from those players (up to 20 matches per player)
    - Stores full match JSON in database
-   - Creates player stubs for all participants
+   - Only players from League API are saved to database
 
-2. **Stage 3** (Always runs):
-   - Removes players who have no associated matches
-   - Uses SQL stored procedure for performance
-
-3. **Stage 4** (Optional - controlled by `ENRICH_ACCOUNT`):
+2. **Stage 3** (Optional - controlled by `ENRICH_ACCOUNT`):
    - Fetches Riot ID (gameName#tagLine) for all players
    - Updates player records with account information
    - Handles 404 errors gracefully (account not found)
 
-4. **Stage 5** (Optional - controlled by `ENRICH_LEAGUE`):
+3. **Stage 4** (Optional - controlled by `ENRICH_LEAGUE`):
    - Fetches current ranked statistics for all players
    - Updates: tier, rank, league points, wins, losses, status flags
    - Filters for RANKED_TFT queue only
@@ -442,8 +415,8 @@ All logs are written to `logs/index.log` with timestamps:
 [2025-11-04T10:30:46.456Z] [INFO] Processing Tier 1/2: CHALLENGER
 [2025-11-04T10:30:50.789Z] [INFO] Processing Tier 2/2: MASTER
 ...
-[2025-11-04T10:45:30.123Z] [INFO] Stage 4: Account Enrichment (ENABLED)
-[2025-11-04T10:50:15.456Z] [INFO] Stage 5: League Enrichment (SKIPPED - disabled via CLI)
+[2025-11-04T10:45:30.123Z] [INFO] Stage 3: Account Enrichment (ENABLED)
+[2025-11-04T10:50:15.456Z] [INFO] Stage 4: League Enrichment (SKIPPED - disabled via CLI)
 [2025-11-04T10:50:15.789Z] [OK] ✅ Data Collection Pipeline Complete!
 ```
 
@@ -464,10 +437,8 @@ All logs are written to `logs/index.log` with timestamps:
    - Fetch match IDs from each seed player (up to 20 matches)
    - Stream fetch match details one-by-one:
      - Save full match JSON to `matches.data` (JSONB)
-     - Extract participant PUUIDs
-     - Create player stubs with default values
-     - Create player-match links
    - Immediate database saves after each fetch
+   - No player extraction from matches - only League API players are stored
 
 **Key Features**:
 - Processes tiers sequentially (one after another)
@@ -476,26 +447,9 @@ All logs are written to `logs/index.log` with timestamps:
 
 **Output**: 
 - Matches stored from all specified tiers
-- Player stubs created for all discovered players
-- Player-match links established
+- All players from League API saved with complete tier information
 
-### Stage 3: Orphan Cleanup (Always Runs)
-
-**Purpose**: Remove players without any associated matches
-
-**Process**:
-1. Call SQL stored procedure `delete_orphaned_players()`
-2. Deletes players not in `players_matches_link` table
-3. Returns count of deleted players
-
-**Why It's Needed**:
-- Players from Stage 1 might not have any valid matches
-- API errors during Stage 2 can leave orphaned records
-- Keeps database clean and efficient
-
-**Output**: Clean database with only relevant players
-
-### Stage 4: Account Enrichment (Optional)
+### Stage 3: Account Enrichment (Optional)
 
 **Controlled By**: `ENRICH_ACCOUNT` parameter (`on`/`off`)
 
@@ -520,7 +474,7 @@ All logs are written to `logs/index.log` with timestamps:
 
 **Output**: Players updated with Riot ID (gameName#tagLine)
 
-### Stage 5: League Enrichment (Optional)
+### Stage 4: League Enrichment (Optional)
 
 **Controlled By**: `ENRICH_LEAGUE` parameter (`on`/`off`)
 
@@ -720,15 +674,7 @@ Solution:
   - Pipeline will skip to next tier automatically
 ```
 
-**5. Player Stub Constraint Errors**
-```
-Error: NOT NULL constraint failed
-Solution: Ensure default values are provided for all required fields
-Check: upsertPlayerStubs() in matchRepository.ts
-All required fields should have defaults (tier='UNKNOWN', rank='IV', etc.)
-```
-
-**6. Memory Issues (Large Datasets)**
+**5. Memory Issues (Large Datasets)**
 ```
 Error: JavaScript heap out of memory
 Solution: 
@@ -739,7 +685,7 @@ Solution:
 Example: npm start diamond 500 off off
 ```
 
-**7. "all" Keyword Takes Too Long**
+**6. "all" Keyword Takes Too Long**
 ```
 Issue: npm start all 100 on on takes hours
 Explanation: 

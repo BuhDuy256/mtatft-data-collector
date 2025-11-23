@@ -29,8 +29,8 @@ npm start diamond 100 off off
   - Tiers: diamond
   - Matches per tier: 100
   - Total matches goal: 100
-  - Enrich account (Stage 4): OFF
-  - Enrich league (Stage 5): OFF
+  - Enrich account (Stage 3): OFF
+  - Enrich league (Stage 4): OFF
 ...
 (OK) ✅ Data Collection Pipeline Complete!
 ```
