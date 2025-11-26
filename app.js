@@ -20,8 +20,12 @@ const processIconUrl = (rawPath) => {
 
 // Lọc tướng rác
 const isValidUnit = (unit) => {
-  if (unit.traits.length === 0 && unit.cost > 10) return false;
+  // Loại bỏ units không có traits (dummy units, training dummies, etc.)
+  if (unit.traits.length === 0) return false;
+  
+  // Loại bỏ các unit đặc biệt như VoidSpawn
   if (unit.apiName && unit.apiName.includes("TFT_VoidSpawn")) return false;
+  
   return true;
 };
 
