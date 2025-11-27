@@ -1,35 +1,27 @@
-import { z } from 'zod';
-
-/**
- * Database model for players table
- * Snake_case naming to match PostgreSQL conventions
- */
+import { z } from 'zod'
 
 export const PlayerDBSchema = z.object({
     puuid: z.string(),
-    game_name: z.string().optional(),      // Riot ID game name
-    tag_line: z.string().optional(),       // Riot ID tag line
-    tier: z.string(), // CHALLENGER, GRANDMASTER, MASTER, DIAMOND, EMERALD, PLATINUM, GOLD, SILVER, BRONZE, IRON
+    game_name: z.string().optional(),
+    tag_line: z.string().optional(),
+    tier: z.string(),
     league_points: z.number(),
-    rank: z.string(), // I, II, III, IV
+    rank: z.string(),
     wins: z.number(),
     losses: z.number(),
     veteran: z.boolean(),
     inactive: z.boolean(),
     fresh_blood: z.boolean(),
     hot_streak: z.boolean(),
-    updated_at: z.string().optional() // Timestamp when rank was last updated
-});
+    updated_at: z.string().optional()
+})
 
-export type PlayerDB = z.infer<typeof PlayerDBSchema>;
+export type PlayerDB = z.infer<typeof PlayerDBSchema>
 
-/**
- * Partial schema - chỉ account info (để update Stage 4)
- */
 export const PlayerAccountUpdateSchema = z.object({
     puuid: z.string(),
     game_name: z.string(),
     tag_line: z.string()
-});
+})
 
-export type PlayerAccountUpdate = z.infer<typeof PlayerAccountUpdateSchema>;
+export type PlayerAccountUpdate = z.infer<typeof PlayerAccountUpdateSchema>

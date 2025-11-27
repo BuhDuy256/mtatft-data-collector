@@ -1,15 +1,8 @@
-import { z } from 'zod';
+import { z } from 'zod'
 
-/**
- * Riot TFT Match API models
- * Based on Match V1 API response structure
- */
-
-// --- MATCH ID LIST ---
 export const MatchIdListSchema = z.array(z.string());
 export type MatchIdList = z.infer<typeof MatchIdListSchema>;
 
-// --- COMPANION SCHEMA ---
 const CompanionSchema = z.object({
     content_ID: z.string(),
     item_ID: z.number(),
@@ -17,7 +10,6 @@ const CompanionSchema = z.object({
     species: z.string()
 });
 
-// --- TRAIT SCHEMA ---
 const TraitSchema = z.object({
     name: z.string(),
     num_units: z.number(),
@@ -26,7 +18,6 @@ const TraitSchema = z.object({
     tier_total: z.number()
 });
 
-// --- UNIT SCHEMA ---
 const UnitSchema = z.object({
     character_id: z.string(),
     itemNames: z.array(z.string()),
@@ -35,7 +26,6 @@ const UnitSchema = z.object({
     tier: z.number()
 });
 
-// --- PARTICIPANT SCHEMA ---
 const ParticipantSchema = z.object({
     companion: CompanionSchema,
     gold_left: z.number(),
@@ -46,32 +36,22 @@ const ParticipantSchema = z.object({
     puuid: z.string(),
     time_eliminated: z.number(),
     total_damage_to_players: z.number(),
-    
-    // Optional fields (may not exist for all participants)
     riotIdGameName: z.string().optional(),
     riotIdTagline: z.string().optional(),
-    
-    // Missions (dynamic object with unknown values)
     missions: z.record(z.string(), z.unknown()).optional(),
-    
-    // Collections
     traits: z.array(TraitSchema),
     units: z.array(UnitSchema),
-    
-    // Win status
     win: z.boolean().optional()
 });
 
 export type Participant = z.infer<typeof ParticipantSchema>;
 
-// --- METADATA SCHEMA ---
 const MetadataSchema = z.object({
     data_version: z.string(),
     match_id: z.string(),
-    participants: z.array(z.string()) // Array of PUUIDs
+    participants: z.array(z.string())
 });
 
-// --- INFO SCHEMA ---
 const InfoSchema = z.object({
     endOfGameResult: z.string(),
     gameCreation: z.number(),
@@ -88,7 +68,6 @@ const InfoSchema = z.object({
     participants: z.array(ParticipantSchema)
 });
 
-// --- FULL MATCH SCHEMA ---
 export const RiotMatchSchema = z.object({
     metadata: MetadataSchema,
     info: InfoSchema
@@ -96,7 +75,6 @@ export const RiotMatchSchema = z.object({
 
 export type RiotMatch = z.infer<typeof RiotMatchSchema>;
 
-// --- SIMPLIFIED MATCH INFO (for common queries) ---
 export const MatchSummarySchema = z.object({
     match_id: z.string(),
     game_datetime: z.number(),

@@ -16,7 +16,7 @@ import {
 // Services
 import { fetchPlayersFromTier } from './services/playerCollectorService';
 import { selectRandomPlayers } from './services/playerSelectionService';
-import { collectMatchIdsFromPlayers, fetchAndSaveMatchDetails, type MatchDetailResult } from './services/matchCollectorService';
+import { collectMatchIdsFromPlayers, fetchAndSaveMatchesDirectly } from './services/matchCollectorService';
 import { fetchAndSavePlayerAccounts } from './services/accountCollectorService';
 import { fetchAndSavePlayerLeagues } from './services/leagueCollectorService';
 
@@ -25,6 +25,7 @@ import { mapRiotPlayersToDatabase } from './mappers/PlayerMapper';
 
 // Repository
 import { upsertPlayers, updatePlayerAccount, updatePlayerLeague, getAllPlayerPuuids, getPlayersMissingAccountInfo, getPlayersMissingLeagueInfo } from './repository/playerRepository';
+import { upsertMatch } from './repository/matchRepository';
 
 // Models
 import type { MatchDB } from './models/database/MatchDBMode';
@@ -135,56 +136,28 @@ console.log(`  - Total matches goal: ${match_goal * tiers.length}`);
 console.log(`  - Enrich account (Stage 3): ${enrich_account ? 'ON' : 'OFF'}`);
 console.log(`  - Enrich league (Stage 4): ${enrich_league ? 'ON' : 'OFF'}`);
 
-/**
- * Collect tier-based seed players and insert into database
- * Fetches players from specified tier/divisions, selects random subset based on match goal,
- * and upserts to database
- * 
- * @param tier - Tier to fetch players from (CHALLENGER, GRANDMASTER, etc.)
- * @param match_goal - Target number of matches to collect (used for player selection)
- * @param divisions - Array of divisions to fetch (1-4 for non-Apex tiers)
- * @param pages - Array of page numbers to fetch
- * @returns Set of PUUIDs that were successfully inserted into database
- */
 async function collectTierBasedPlayers(
     tier: Tier, 
     match_goal: number,
-    divisions: Division[] = [1, 2, 3, 4],
+    divisions: Division[] = ['I', 'II', 'III', 'IV'],
     pages: number[] = [1]
 ): Promise<Set<string>> {
     console.log(`(INFO) Stage 1: Collecting players...`);
-    
-    // Step 1: Fetch and select players
     const raw_players = await fetchPlayersFromTier(tier, divisions, pages);
     const players = selectRandomPlayers(raw_players, match_goal);
     const players_to_upsert = mapRiotPlayersToDatabase(players);
-
-    // Step 2: Upsert to database via repository
     const upserted_puuids = await upsertPlayers(players_to_upsert);
-    
-    // Step 3: Build set from successfully upserted PUUIDs
     const puuid_seed_list = new Set<string>(upserted_puuids);
-    
     console.log(`    - Seed list contains ${puuid_seed_list.size} unique PUUIDs`);
-    
     return puuid_seed_list;
 }
 
-/**
- * Collect matches from seed players using stream processing
- * Fetches match IDs from players, then streams match details with immediate database saves.
- * Only saves match data - does not create player stubs or links.
- * 
- * @param puuid_seed_list - Set of player PUUIDs to fetch matches from
- * @param region - Region identifier for match data (e.g., 'sea', 'na1')
- */
 async function collectMatchesFromPlayers(
     puuid_seed_list: Set<string>,
     region: string
 ): Promise<void> {
     console.log(`(INFO) Stage 2: Collecting matches from ${puuid_seed_list.size} seed players...`);
     
-    // Step 1: Fetch match IDs from seed players
     const match_id_set = await collectMatchIdsFromPlayers(puuid_seed_list);
     
     if (match_id_set.size === 0) {
@@ -192,21 +165,14 @@ async function collectMatchesFromPlayers(
         return;
     }
     
-    let match_count = 0;
-    
-    // Step 2: Stream fetch and immediately save each match
-    await fetchAndSaveMatchDetails(match_id_set, region, async (match_result: MatchDetailResult) => {
-        match_count++;
-        
-        // Save match to database
+    const match_count = await fetchAndSaveMatchesDirectly(match_id_set, region, async (match_data) => {
         const match_db: MatchDB = {
-            match_id: match_result.matchId,
-            data: match_result.fullMatchData,
+            match_id: match_data.match_id,
+            data: match_data.data,
             is_processed: false,
-            region: region
+            region: match_data.region
         };
         
-        const { upsertMatch } = await import('./repository/matchRepository');
         await upsertMatch(match_db);
     });
     
@@ -214,25 +180,18 @@ async function collectMatchesFromPlayers(
     console.log(`    - Matches saved: ${match_count}`);
 }
 
-/**
- * Stage 3: Enrich player account data using stream processing
- * Fetches Riot account info (gameName, tagLine) ONLY for players missing account data.
- * Uses streaming approach - fetch one, save one.
- */
 async function enrichPlayerAccounts(): Promise<void> {
     console.log(`(INFO) Stage 3: Enriching player account data...`);
     
-    // Fetch only players missing account info (game_name or tag_line is NULL)
     const missing_puuids = await getPlayersMissingAccountInfo();
     
     if (missing_puuids.length === 0) {
-        console.log("(INFO) All players already have account info. Skipping Stage 3.");
+        console.log("(INFO) All players already have account info. Skipping Stage` 3.");
         return;
     }
     
     console.log(`(INFO) Found ${missing_puuids.length} players missing account info. Updating...`);
     
-    // Stream fetch and immediately save each account
     const updated_count = await fetchAndSavePlayerAccounts(missing_puuids, async (account) => {
         await updatePlayerAccount(account.puuid, account.gameName, account.tagLine);
     });
@@ -242,15 +201,9 @@ async function enrichPlayerAccounts(): Promise<void> {
     console.log(`    - Successfully updated: ${updated_count}`);
 }
 
-/**
- * Stage 4: Enrich player league data using stream processing
- * Fetches RANKED_TFT league entries (tier, rank, LP, W/L) ONLY for players missing league data.
- * Filters to only RANKED_TFT queue type, ignoring other modes like RANKED_TFT_TURBO.
- */
 async function enrichPlayerLeagues(): Promise<void> {
     console.log(`(INFO) Stage 4: Enriching player league data (RANKED_TFT only)...`);
     
-    // Fetch only players missing league info (updated_at is NULL)
     const missing_puuids = await getPlayersMissingLeagueInfo();
     
     if (missing_puuids.length === 0) {
@@ -260,7 +213,6 @@ async function enrichPlayerLeagues(): Promise<void> {
     
     console.log(`(INFO) Found ${missing_puuids.length} players missing league info. Updating...`);
     
-    // Stream fetch and immediately save each league entry
     const updated_count = await fetchAndSavePlayerLeagues(missing_puuids, async (league) => {
         await updatePlayerLeague(league.puuid, {
             tier: league.tier,
@@ -308,7 +260,7 @@ async function runPipeline() {
             console.log(`(INFO) ========================================`);
             
             // Stage 1: Collect seed players for this tier
-            const puuid_seed_list = await collectTierBasedPlayers(tier, match_goal, [2, 3], [1, 2]);
+            const puuid_seed_list = await collectTierBasedPlayers(tier, match_goal, ['II', 'III'], [1, 2]);
             
             if (puuid_seed_list.size === 0) {
                 console.log(`(WARNING) No seed players found for ${tier}. Skipping to next tier.`);
