@@ -4,13 +4,6 @@ import { RATE_LIMIT_DELAY } from '../utils/constant';
 import { isAxiosError } from 'axios';
 import { RiotAccountSchema, type RiotAccount } from '../models/riot/RiotAccountModels';
 
-/**
- * Fetch account information (gameName, tagLine) for a single player
- * Handles 404 errors gracefully (account not found).
- * 
- * @param puuid - Player PUUID
- * @returns RiotAccount object or null if not found
- */
 export async function fetchPlayerAccount(puuid: string): Promise<RiotAccount | null> {
     try {
         const response = await retryOnRateLimit(() => 
@@ -33,13 +26,6 @@ export async function fetchPlayerAccount(puuid: string): Promise<RiotAccount | n
     }
 }
 
-/**
- * Fetch account information for multiple players in batch
- * DEPRECATED: Prefer using fetchAndSavePlayerAccounts() for stream processing.
- * 
- * @param puuids - Array of player PUUIDs
- * @returns Array of RiotAccount objects (only found players)
- */
 export async function fetchPlayerAccounts(puuids: string[]): Promise<RiotAccount[]> {
     const accounts: RiotAccount[] = [];
     let i = 0;
@@ -61,15 +47,6 @@ export async function fetchPlayerAccounts(puuids: string[]): Promise<RiotAccount
     return accounts;
 }
 
-/**
- * Fetch account info with streaming database saves
- * RECOMMENDED: Use this to avoid memory issues with large player sets.
- * Fetches one account at a time and immediately saves to database via callback.
- * 
- * @param puuids - Array of player PUUIDs
- * @param on_account_fetched - Callback to save account to database
- * @returns Number of accounts successfully fetched and saved
- */
 export async function fetchAndSavePlayerAccounts(
     puuids: string[],
     on_account_fetched: (account: RiotAccount) => Promise<void>

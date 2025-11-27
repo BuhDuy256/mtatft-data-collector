@@ -28,7 +28,6 @@ const accountApi: AxiosInstance = axios.create({
     headers: { "X-Riot-Token": RIOT_API_KEY }
 });
 
-// Platform API cho league entries by puuid (dùng RIOT_LEAGUE_REGION)
 const platformApi: AxiosInstance = axios.create({
     baseURL: `https://${RIOT_LEAGUE_REGION}.api.riotgames.com`,
     headers: { "X-Riot-Token": RIOT_API_KEY }

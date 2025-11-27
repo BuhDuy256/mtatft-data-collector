@@ -1,13 +1,5 @@
 import { type RiotLeagueEntry } from '../models/riot/RiotLeagueModels';
 
-/**
- * Map Riot league entry to player update format for database
- * Note: Uses camelCase field names (leaguePoints, freshBlood, hotStreak) 
- * which match the database column names directly.
- * 
- * @param league_entry - League data from Riot API
- * @returns Object with league fields for database update
- */
 export function mapRiotLeagueToPlayerUpdate(league_entry: RiotLeagueEntry) {
     return {
         puuid: league_entry.puuid,
@@ -23,13 +15,6 @@ export function mapRiotLeagueToPlayerUpdate(league_entry: RiotLeagueEntry) {
     };
 }
 
-/**
- * Map multiple Riot league entries to player update format
- * Batch version of mapRiotLeagueToPlayerUpdate().
- * 
- * @param league_entries - Array of league data from Riot API
- * @returns Array of update objects
- */
 export function mapRiotLeaguesToPlayerUpdates(league_entries: RiotLeagueEntry[]) {
     return league_entries.map(entry => mapRiotLeagueToPlayerUpdate(entry));
 }

@@ -116,7 +116,6 @@ if (tier_args.length === 1 && tier_args[0].toLowerCase() === 'all') {
     tiers = [...HIGH_TIERS, ...LOW_TIERS] as Tier[];
     console.log(`(INFO) Using ALL tiers: ${tiers.join(', ')}`);
 } else {
-    // Parse individual tiers
     for (const tier_arg of tier_args) {
         const parsed_tier = TierSchema.safeParse(tier_arg);
         if (!parsed_tier.success) {
